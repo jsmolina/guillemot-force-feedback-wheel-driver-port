@@ -9,9 +9,7 @@
             "version>=": "1.0.27"
         },
         {
-            "name": "vigemclient",
-            "version>=": "1.23.0"
+            "name": "vigemclient"
         }
-    ],
-    "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271"
+    ]
 }

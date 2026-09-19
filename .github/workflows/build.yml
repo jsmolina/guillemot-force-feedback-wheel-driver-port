@@ -34,22 +34,7 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             --triplet x64-windows-static `
             --overlay-ports="$env:GITHUB_WORKSPACE\ports"
-      
-      - name: Debug vcpkg
-        shell: pwsh
-        run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" list
-          Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static" -Recurse |
-            Where-Object {
-              $_.Name -match "ViGEm|vigem"
-            } |
-            Select-Object FullName
-
-      - name: Check ViGEm port
-        shell: pwsh
-        run: |
-          Get-ChildItem "$env:GITHUB_WORKSPACE\ports\vigemclient" -Recurse
-
+  
       - name: Configure
         shell: pwsh
         run: |
