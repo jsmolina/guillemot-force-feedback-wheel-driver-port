@@ -13,5 +13,5 @@
             "version>=": "1.23.0"
         }
     ],
-    "builtin-baseline": "2024-09-30"
+    "builtin-baseline": "a1cae005c39be7b18ba319fced856b68d7276271"
 }
