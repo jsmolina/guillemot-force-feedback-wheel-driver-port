@@ -16,7 +16,7 @@
 
 #include "vigem_gamepad.h"
 
-#include <ViGEmClient.h>
+#include <ViGEm/Client.h>
 
 #include <cstring>
 

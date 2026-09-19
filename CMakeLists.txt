@@ -15,6 +15,8 @@ if(WIN32)
     )
 endif()
 
+find_package(PkgConfig QUIET)
+
 find_path(LIBUSB_INCLUDE_DIR
     NAMES libusb-1.0/libusb.h
     REQUIRED
@@ -26,7 +28,7 @@ find_library(LIBUSB_LIBRARY
 )
 
 find_path(VIGEM_INCLUDE_DIR
-    NAMES ViGEmClient.h
+    NAMES ViGEm/Client.h
     REQUIRED
 )
 
