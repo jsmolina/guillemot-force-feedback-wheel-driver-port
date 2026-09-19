@@ -9,20 +9,18 @@
 // Ctrl-C cleanly tears everything down.
 
 #ifdef _WIN32
-#   define WIN32_LEAN_AND_MEAN
-#   define NOMINMAX
-#   include <Windows.h>
+#include <Windows.h>
 #endif
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
-#include <cstdarg>
-#include <vector>
 #include <string>
 #include <thread>
-#include <chrono>
+#include <vector>
 
 #include "iforce_protocol.h"
 #include "usb_device.h"
@@ -30,7 +28,7 @@
 
 using namespace iforce;
 
-static std::atomic<bool> g_stop{false};
+static std::atomic<bool> g_stop{ false };
 
 #ifdef _WIN32
 static BOOL WINAPI console_handler(DWORD ctrl) {
@@ -95,7 +93,8 @@ int main() {
     while (!g_stop.load()) {
         int transferred = 0;
         if (!dev.read(buf, /*timeout_ms=*/1000, &transferred)) {
-            if (g_stop.load()) break;
+            if (g_stop.load())
+                break;
             // Timeouts are expected when the wheel is idle; only log real
             // transfer errors.
             if (dev.last_error().find("timed out") == std::string::npos) {
@@ -108,7 +107,7 @@ int main() {
         // Decode + forward.
         DeviceState new_state{};
         if (!decode_packet(buf.data(), buf.size(), new_state)) {
-            continue;   // not an input packet, ignore
+            continue; // not an input packet, ignore
         }
 
         // Re-connection / target-loss detection: ViGEmClient returns an
