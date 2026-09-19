@@ -5,6 +5,43 @@ Feedback Racing Wheel (`VID 0x06f8`, `PID 0x0004`). The current port exposes
 the wheel as a virtual Xbox 360 controller through ViGEm. Force-feedback
 output is not implemented yet.
 
+## Installing
+On Windows, this project is a *user-mode bridge*, not a kernel driver. It reads the physical wheel with libusb and creates a virtual Xbox 360 controller through ViGEmBus.
+
+*Setup*
+
+1. Install the *ViGEmBus* driver on Windows.
+2. Connect the wheel.
+3. Use Zadig to replace the wheel’s HID driver with *WinUSB* or *libusbK*:
+   - Select the Guillemot wheel.
+   - Enable “List All Devices”.
+   - Install WinUSB/libusbK for the correct interface, usually interface 0.
+4. Extract the release ZIP.
+5. Run PowerShell or Command Prompt in that folder:
+
+powershell
+.\iforce_vigem_port.exe
+
+
+You should see messages indicating:
+
+text
+Wheel 06f8:0004 opened
+ViGEm Xbox 360 target online
+
+
+Press Ctrl+C to stop it.
+
+Verify the virtual controller with:
+
+text
+Win+R -> joy.cpl
+
+
+The wheel should appear as an Xbox 360 controller. Steering maps to left-stick X, gas to the right trigger, brake to the left trigger, and wheel buttons to controller buttons.
+
+Force feedback is currently not implemented. If the program cannot open the wheel, check that Zadig assigned WinUSB/libusbK to the correct interface and that no other application is using the device.
+
 ## Device Behaviour
 
 The Linux driver identifies this device as a wheel using the `abs_wheel`
