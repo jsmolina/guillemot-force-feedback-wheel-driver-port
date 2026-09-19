@@ -1,0 +1,22 @@
+# Build output
+/build/
+/out/
+*.exe
+*.pdb
+*.obj
+*.ilk
+
+# IDE
+.vs/
+.vscode/
+*.user
+CMakeSettings.json
+CMakeUserPresets.json
+
+# vcpkg
+vcpkg_installed/
+
+# Runtime DLLs (copied at build time)
+libusb-1.0.dll
+ViGEmBus.dll
+ViGEmClient.dll

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "iforce-vigem-port",
+    "version": "0.1.0",
+    "description": "User-mode driver for Guillemot Force Feedback Racing Wheel (06f8:0004) feeding a ViGEm Xbox 360 virtual controller.",
+    "dependencies": [
+        {
+            "name": "libusb",
+            "version>=": "1.0.27"
+        },
+        {
+            "name": "vigemclient",
+            "version>=": "1.23.0"
+        }
+    ],
+    "builtin-baseline": "2024-09-30"
+}
