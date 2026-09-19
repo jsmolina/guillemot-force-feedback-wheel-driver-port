@@ -34,7 +34,7 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install `
             --triplet x64-windows-static `
             --overlay-ports="$env:GITHUB_WORKSPACE\ports"
-  
+
       - name: Configure
         shell: pwsh
         run: |
@@ -53,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build\iforce_vigem_port.exe dist\
+          Copy-Item build\Release\iforce_vigem_port.exe dist\
           Compress-Archive `
             -Path dist\* `
             -DestinationPath iforce-vigem-windows-x64.zip
