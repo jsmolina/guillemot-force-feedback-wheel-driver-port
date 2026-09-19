@@ -1,6 +1,6 @@
 # guillemot-force-feedback-wheel-driver-port
 
-User-mode port of the Linux `iforce` input path for the Guillemot Force
+User-mode port to modern Windows of the Linux `iforce` input path for the Guillemot Force
 Feedback Racing Wheel (`VID 0x06f8`, `PID 0x0004`). The current port exposes
 the wheel as a virtual Xbox 360 controller through ViGEm. Force-feedback
 output is not implemented yet.
