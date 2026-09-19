@@ -13,11 +13,9 @@
 #include <cstdint>
 #include <string>
 
-// Forward-declare ViGEm types so the header stays clean.
-struct _VIGEM_CLIENT_T_;
-using PVIGEM_CLIENT = _VIGEM_CLIENT_T_*;
-struct _VIGEM_TARGET_T_;
-using PVIGEM_TARGET = _VIGEM_TARGET_T_*;
+// Forward-declare ViGEm types without defining the SDK's pointer aliases.
+struct _VIGEM_CLIENT_T;
+struct _VIGEM_TARGET_T;
 
 namespace iforce {
 
@@ -26,8 +24,8 @@ public:
     VigemGamepad() = default;
     ~VigemGamepad();
 
-    VigemGamepad(const VigemGamepad&)             = delete;
-    VigemGamepad& operator=(const VigemGamepad&)  = delete;
+    VigemGamepad(const VigemGamepad&) = delete;
+    VigemGamepad& operator=(const VigemGamepad&) = delete;
     VigemGamepad(VigemGamepad&&) noexcept;
     VigemGamepad& operator=(VigemGamepad&&) noexcept;
 
@@ -45,9 +43,9 @@ public:
     bool is_connected() const { return target_ != nullptr; }
 
 private:
-    PVIGEM_CLIENT client_  = nullptr;
-    PVIGEM_TARGET target_  = nullptr;
-    std::string   last_error_;
+    _VIGEM_CLIENT_T* client_ = nullptr;
+    _VIGEM_TARGET_T* target_ = nullptr;
+    std::string last_error_;
 };
 
 } // namespace iforce

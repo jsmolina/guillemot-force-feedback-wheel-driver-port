@@ -10,9 +10,7 @@
 
 #include <libusb-1.0/libusb.h>
 
-#include <array>
-#include <cstring>
-#include <system_error>
+#include <utility>
 
 namespace iforce {
 
@@ -20,8 +18,40 @@ UsbDevice::~UsbDevice() {
     close();
 }
 
+UsbDevice::UsbDevice(UsbDevice&& other) noexcept
+    : ctx_(other.ctx_),
+      handle_(other.handle_),
+      iface_(other.iface_),
+      detached_(other.detached_),
+      claimed_(other.claimed_),
+      last_error_(std::move(other.last_error_)) {
+    other.ctx_ = nullptr;
+    other.handle_ = nullptr;
+    other.detached_ = false;
+    other.claimed_ = false;
+}
+
+UsbDevice& UsbDevice::operator=(UsbDevice&& other) noexcept {
+    if (this != &other) {
+        close();
+        ctx_ = other.ctx_;
+        handle_ = other.handle_;
+        iface_ = other.iface_;
+        detached_ = other.detached_;
+        claimed_ = other.claimed_;
+        last_error_ = std::move(other.last_error_);
+        other.ctx_ = nullptr;
+        other.handle_ = nullptr;
+        other.detached_ = false;
+        other.claimed_ = false;
+    }
+    return *this;
+}
+
 UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
     UsbOpenResult result;
+
+    close();
 
     // 1. Initialise a private libusb context (libusb >= 1.0.27 supports
     //    libusb_init_context() for option-based init; older versions fall
@@ -33,18 +63,18 @@ UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
 #endif
     if (init_rc != LIBUSB_SUCCESS) {
         result.error_message = std::string("libusb_init failed: ")
-                             + libusb_error_name(init_rc);
+            + libusb_error_name(init_rc);
         return result;
     }
 
     // 2. Find the device by VID/PID.  This is a blocking enumeration call.
     handle_ = libusb_open_device_with_vid_pid(ctx_, vid, pid);
     if (handle_ == nullptr) {
-        result.error_message =
-            "Could not find/open device 06f8:0004. "
-            "Make sure the wheel is plugged in. "
-            "On Windows you may also need to replace the stock HID driver "
-            "with WinUSB / libusbK via Zadig (interface 0).";
+        result.error_message = "Could not find/open device 06f8:0004. "
+                               "Make sure the wheel is plugged in. "
+                               "On Windows you may also need to replace the stock HID driver "
+                               "with WinUSB / libusbK via Zadig (interface 0).";
+        close();
         return result;
     }
 
@@ -55,12 +85,11 @@ UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
     if (detach_rc == LIBUSB_SUCCESS) {
         detached_ = true;
     } else if (detach_rc != LIBUSB_ERROR_NOT_SUPPORTED
-            && detach_rc != LIBUSB_ERROR_NOT_FOUND) {
+        && detach_rc != LIBUSB_ERROR_NOT_FOUND) {
         // Real error - bail out.
         result.error_message = std::string("libusb_detach_kernel_driver failed: ")
-                             + libusb_error_name(detach_rc);
-        libusb_close(handle_);
-        handle_ = nullptr;
+            + libusb_error_name(detach_rc);
+        close();
         return result;
     }
 
@@ -68,13 +97,8 @@ UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
     const int claim_rc = libusb_claim_interface(handle_, iface_);
     if (claim_rc != LIBUSB_SUCCESS) {
         result.error_message = std::string("libusb_claim_interface failed: ")
-                             + libusb_error_name(claim_rc);
-        if (detached_) {
-            libusb_attach_kernel_driver(handle_, iface_);
-            detached_ = false;
-        }
-        libusb_close(handle_);
-        handle_ = nullptr;
+            + libusb_error_name(claim_rc);
+        close();
         return result;
     }
     claimed_ = true;
@@ -98,7 +122,8 @@ bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transfer
         &actual,
         timeout_ms);
 
-    if (transferred) *transferred = actual;
+    if (transferred)
+        *transferred = actual;
 
     if (rc == LIBUSB_SUCCESS) {
         buffer.resize(static_cast<std::size_t>(actual));
@@ -110,7 +135,7 @@ bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transfer
         last_error_ = "libusb_interrupt_transfer timed out";
     } else {
         last_error_ = std::string("libusb_interrupt_transfer failed: ")
-                    + libusb_error_name(rc);
+            + libusb_error_name(rc);
     }
     buffer.clear();
     return false;

@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "iforce_protocol.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -21,7 +23,7 @@ struct libusb_device_handle;
 namespace iforce {
 
 struct UsbOpenResult {
-    bool        ok            = false;
+    bool ok = false;
     std::string error_message;
 };
 
@@ -37,10 +39,10 @@ public:
     UsbDevice() = default;
     ~UsbDevice();
 
-    UsbDevice(const UsbDevice&)            = delete;
+    UsbDevice(const UsbDevice&) = delete;
     UsbDevice& operator=(const UsbDevice&) = delete;
-    UsbDevice(UsbDevice&&) noexcept        = default;
-    UsbDevice& operator=(UsbDevice&&) noexcept = default;
+    UsbDevice(UsbDevice&& other) noexcept;
+    UsbDevice& operator=(UsbDevice&& other) noexcept;
 
     // Open device with VID=0x06f8 PID=0x0004, detach the kernel HID driver
     // if needed (libusb_detach_kernel_driver), then claim interface 0.
@@ -57,12 +59,12 @@ public:
     bool is_open() const { return handle_ != nullptr; }
 
 private:
-    libusb_context*      ctx_        = nullptr;
-    libusb_device_handle* handle_    = nullptr;
-    int                  iface_     = 0;
-    bool                 detached_  = false;  // we detached the kernel driver
-    bool                 claimed_   = false;  // we claimed the interface
-    std::string          last_error_;
+    libusb_context* ctx_ = nullptr;
+    libusb_device_handle* handle_ = nullptr;
+    int iface_ = 0;
+    bool detached_ = false; // we detached the kernel driver
+    bool claimed_ = false;  // we claimed the interface
+    std::string last_error_;
 };
 
 } // namespace iforce
