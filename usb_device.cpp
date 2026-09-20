@@ -22,6 +22,8 @@ UsbDevice::UsbDevice(UsbDevice&& other) noexcept
     : ctx_(other.ctx_),
       handle_(other.handle_),
       iface_(other.iface_),
+      ep_in_(other.ep_in_),
+      ep_out_(other.ep_out_),
       detached_(other.detached_),
       claimed_(other.claimed_),
       last_error_(std::move(other.last_error_)) {
@@ -37,6 +39,8 @@ UsbDevice& UsbDevice::operator=(UsbDevice&& other) noexcept {
         ctx_ = other.ctx_;
         handle_ = other.handle_;
         iface_ = other.iface_;
+        ep_in_ = other.ep_in_;
+        ep_out_ = other.ep_out_;
         detached_ = other.detached_;
         claimed_ = other.claimed_;
         last_error_ = std::move(other.last_error_);
@@ -103,6 +107,36 @@ UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
     }
     claimed_ = true;
 
+    // Use the active descriptors instead of assuming every firmware revision
+    // uses the endpoint addresses from the Linux driver.
+    libusb_config_descriptor* config = nullptr;
+    const int config_rc = libusb_get_active_config_descriptor(
+        libusb_get_device(handle_), &config);
+    if (config_rc == LIBUSB_SUCCESS && config != nullptr) {
+        for (uint8_t i = 0; i < config->bNumInterfaces; ++i) {
+            const libusb_interface& interface = config->interface[i];
+            for (int alt = 0; alt < interface.num_altsetting; ++alt) {
+                const libusb_interface_descriptor& descriptor = interface.altsetting[alt];
+                if (descriptor.bInterfaceNumber != iface_)
+                    continue;
+                for (uint8_t ep = 0; ep < descriptor.bNumEndpoints; ++ep) {
+                    const libusb_endpoint_descriptor& endpoint = descriptor.endpoint[ep];
+                    if ((endpoint.bmAttributes & LIBUSB_TRANSFER_TYPE_MASK)
+                        != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+                        continue;
+                    }
+                    if ((endpoint.bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK)
+                        == LIBUSB_ENDPOINT_IN) {
+                        ep_in_ = endpoint.bEndpointAddress;
+                    } else {
+                        ep_out_ = endpoint.bEndpointAddress;
+                    }
+                }
+            }
+        }
+        libusb_free_config_descriptor(config);
+    }
+
     result.ok = true;
     return result;
 }
@@ -116,7 +150,7 @@ bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transfer
     int actual = 0;
     const int rc = libusb_interrupt_transfer(
         handle_,
-        EP_IN_ADDR,
+        ep_in_,
         buffer.data(),
         static_cast<int>(buffer.size()),
         &actual,
@@ -154,7 +188,7 @@ bool UsbDevice::write(const std::vector<uint8_t>& packet, int timeout_ms) {
     int transferred = 0;
     const int rc = libusb_interrupt_transfer(
         handle_,
-        EP_OUT_ADDR,
+        ep_out_,
         const_cast<unsigned char*>(packet.data()),
         static_cast<int>(packet.size()),
         &transferred,
@@ -227,6 +261,8 @@ void UsbDevice::close() {
         libusb_exit(ctx_);
         ctx_ = nullptr;
     }
+    ep_in_ = EP_IN_ADDR;
+    ep_out_ = EP_OUT_ADDR;
 }
 
 } // namespace iforce

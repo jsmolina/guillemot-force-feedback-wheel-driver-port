@@ -70,6 +70,8 @@ private:
     libusb_context* ctx_ = nullptr;
     libusb_device_handle* handle_ = nullptr;
     int iface_ = 0;
+    uint8_t ep_in_ = EP_IN_ADDR;
+    uint8_t ep_out_ = EP_OUT_ADDR;
     bool detached_ = false; // we detached the kernel driver
     bool claimed_ = false;  // we claimed the interface
     std::string last_error_;
