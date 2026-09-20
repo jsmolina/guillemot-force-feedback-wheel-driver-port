@@ -99,3 +99,6 @@ ignored.
 
 - Linux USB transport: https://github.com/torvalds/linux/blob/master/drivers/input/joystick/iforce/iforce-usb.c
 - Linux packet decoding: https://github.com/torvalds/linux/blob/master/drivers/input/joystick/iforce/iforce-packets.c
+
+# AI
+Is this done by AI? Yes, it is. I developed my last windows driver 25 years ago, I just wanted my USB wheel to work in windows.
