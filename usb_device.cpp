@@ -141,6 +141,75 @@ bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transfer
     return false;
 }
 
+bool UsbDevice::write(const std::vector<uint8_t>& packet, int timeout_ms) {
+    if (!is_open()) {
+        last_error_ = "UsbDevice::write() called on a closed device";
+        return false;
+    }
+    if (packet.empty() || packet.size() > EP_MAX_PACKET) {
+        last_error_ = "UsbDevice::write() packet length is outside endpoint limits";
+        return false;
+    }
+
+    int transferred = 0;
+    const int rc = libusb_interrupt_transfer(
+        handle_,
+        EP_OUT_ADDR,
+        const_cast<unsigned char*>(packet.data()),
+        static_cast<int>(packet.size()),
+        &transferred,
+        timeout_ms);
+
+    if (rc != LIBUSB_SUCCESS) {
+        last_error_ = std::string("libusb_interrupt_transfer (OUT) failed: ")
+            + libusb_error_name(rc);
+        return false;
+    }
+    if (transferred != static_cast<int>(packet.size())) {
+        last_error_ = "libusb interrupt OUT transfer was short";
+        return false;
+    }
+
+    last_error_.clear();
+    return true;
+}
+
+bool UsbDevice::query(uint8_t request, std::vector<uint8_t>& response,
+    int timeout_ms) {
+    if (!is_open()) {
+        last_error_ = "UsbDevice::query() called on a closed device";
+        return false;
+    }
+
+    response.assign(EP_MAX_PACKET, 0);
+    const int transferred = libusb_control_transfer(
+        handle_,
+        LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR
+            | LIBUSB_RECIPIENT_INTERFACE,
+        request,
+        0,
+        static_cast<uint16_t>(iface_),
+        response.data(),
+        static_cast<uint16_t>(response.size()),
+        timeout_ms);
+
+    if (transferred < 0) {
+        last_error_ = std::string("libusb_control_transfer failed: ")
+            + libusb_error_name(transferred);
+        response.clear();
+        return false;
+    }
+    response.resize(static_cast<std::size_t>(transferred));
+    if (response.empty() || response[0] != request) {
+        last_error_ = "I-Force query returned an unexpected response";
+        response.clear();
+        return false;
+    }
+
+    last_error_.clear();
+    return true;
+}
+
 void UsbDevice::close() {
     if (handle_) {
         if (claimed_) {

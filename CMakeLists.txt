@@ -45,6 +45,7 @@ find_library(VIGEM_LIBRARY
 add_executable(iforce_vigem_port
     main.cpp
     iforce_protocol.cpp
+    iforce_force_feedback.cpp
     usb_device.cpp
     vigem_gamepad.cpp
 )

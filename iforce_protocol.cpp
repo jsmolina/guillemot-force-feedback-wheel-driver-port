@@ -8,8 +8,8 @@
 //   - drivers/input/joystick/iforce/iforce-usb.c  (USB IRQ path)
 //   - drivers/input/joystick/iforce/iforce-packets.c (packet dispatch)
 //
-// We only port the read path (buttons + axes).  All write/FF paths in the
-// kernel driver are intentionally omitted from this user-mode port.
+// The read path remains a direct port of the kernel decoder. Force-feedback
+// output has a separate implementation so this decoder stays side-effect free.
 
 #include "iforce_protocol.h"
 

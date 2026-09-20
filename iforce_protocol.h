@@ -6,8 +6,8 @@
 // (drivers/input/joystick/iforce/iforce-usb.c + iforce-packets.c)
 // for vendor 0x06f8 product 0x0004 (Guillemot Force Feedback Racing Wheel).
 //
-// We only implement reading buttons and axes. Force-feedback output paths
-// (FF_CMD_*) are intentionally not ported in this iteration.
+// Input decoding lives here; force-feedback output encoding is implemented
+// separately in iforce_force_feedback.cpp.
 
 #pragma once
 

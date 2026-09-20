@@ -56,6 +56,47 @@ right trigger, brake to the left trigger, and the eight wheel buttons to
 Xbox 360 buttons. Unsupported packet types and truncated packets are
 ignored.
 
+## Experimental Force Feedback
+
+The port now includes a conservative I-Force output path for the Guillemot
+wheel. At startup it queries the device's effect memory and enables two
+effects only when the device reports enough memory:
+
+- A low-strength `Damper` condition effect (`25%`) that remains active while
+  the virtual controller is connected.
+- A short `Constant Force` impact effect (`250 ms`) driven by the Xbox 360
+  `LargeMotor` and `SmallMotor` rumble values.
+
+XInput does not provide force direction or Immersion effect type, so impact
+polarity alternates to avoid applying a permanent steering bias. This is an
+approximation for collisions and vibration, not a faithful translation of
+`IFC22.dll` effects. `Friction`, springs, barriers, waveforms, and custom
+effects are not exposed by the virtual Xbox 360 interface.
+
+The implementation follows the Linux `iforce` packet lifecycle: it queries
+device readiness and memory, disables the built-in autocenter, uploads effect
+modifiers, enables force feedback, and stops all effects during shutdown.
+Keep the first physical test at low speed and be ready to disconnect the
+wheel. If the device does not answer the readiness or memory query, the
+program continues in input-only mode.
+
+## Build and Test
+
+The virtual Xbox 360 target requires Windows with ViGEmBus installed. The
+wheel must be accessible through WinUSB or libusbK (for example, using Zadig)
+on interface 0. Build with the vcpkg toolchain and then run the executable:
+
+```powershell
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build --config Release
+.\build\Release\iforce_vigem_port.exe
+```
+
+Start a game that produces controller rumble and verify the wheel response at
+low speed first. The current macOS development environment cannot perform
+this runtime test because the ViGEmClient headers and library are Windows
+dependencies, and physical wheel hardware is required for force feedback.
+
 ## Reference
 
 - Linux USB transport: https://github.com/torvalds/linux/blob/master/drivers/input/joystick/iforce/iforce-usb.c

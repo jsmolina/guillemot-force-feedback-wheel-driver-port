@@ -22,6 +22,7 @@
 #include <thread>
 #include <vector>
 
+#include "iforce_force_feedback.h"
 #include "iforce_protocol.h"
 #include "usb_device.h"
 #include "vigem_gamepad.h"
@@ -62,17 +63,8 @@ int main() {
 #endif
 
     log("iforce-vigem-port: Guillemot Force Feedback Racing Wheel (06f8:0004)");
-    log("user-mode port, no FF, buttons + axes only.");
+    log("user-mode port, buttons + axes with experimental force feedback.");
     log("");
-
-    // --- ViGEm setup -----------------------------------------------------
-    VigemGamepad pad;
-    if (!pad.connect()) {
-        log("Failed to create ViGEm Xbox 360 target: %s", pad.last_error().c_str());
-        log("Install ViGEmBus driver from https://github.com/ViGEm/ViGEmBus/releases");
-        return EXIT_FAILURE;
-    }
-    log("ViGEm Xbox 360 target online.");
 
     // --- USB setup -------------------------------------------------------
     UsbDevice dev;
@@ -82,6 +74,31 @@ int main() {
         return EXIT_FAILURE;
     }
     log("Wheel 06f8:0004 opened, interface 0 claimed.");
+
+    IForceFeedback force_feedback(dev);
+    if (force_feedback.initialize()) {
+        log("I-Force feedback online: low-strength damper enabled.");
+    } else {
+        log("I-Force feedback unavailable: %s", force_feedback.last_error().c_str());
+        log("Continuing with input only.");
+    }
+
+    // --- ViGEm setup -----------------------------------------------------
+    VigemGamepad pad;
+    VigemGamepad::RumbleCallback rumble_callback;
+    if (force_feedback.is_enabled()) {
+        rumble_callback = [&force_feedback](uint8_t large_motor,
+                              uint8_t small_motor) {
+            force_feedback.on_rumble(large_motor, small_motor);
+        };
+    }
+    if (!pad.connect(rumble_callback)) {
+        log("Failed to create ViGEm Xbox 360 target: %s", pad.last_error().c_str());
+        log("Install ViGEmBus driver from https://github.com/ViGEm/ViGEmBus/releases");
+        force_feedback.shutdown();
+        return EXIT_FAILURE;
+    }
+    log("ViGEm Xbox 360 target online.");
 
     // --- Main loop -------------------------------------------------------
     std::vector<uint8_t> buf;
@@ -118,7 +135,7 @@ int main() {
                 pad.last_error().c_str());
             pad.disconnect();
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            if (!pad.connect()) {
+            if (!pad.connect(rumble_callback)) {
                 log("ViGEm reconnect failed: %s", pad.last_error().c_str());
             }
             continue;
@@ -129,8 +146,9 @@ int main() {
 
     log("");
     log("Shutting down...");
-    dev.close();
     pad.disconnect();
+    force_feedback.shutdown();
+    dev.close();
     log("Done.");
     return EXIT_SUCCESS;
 }

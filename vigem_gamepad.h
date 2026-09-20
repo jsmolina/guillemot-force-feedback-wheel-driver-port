@@ -4,13 +4,14 @@
 //
 // RAII wrapper around the ViGEmClient Xbox 360 virtual gamepad target.
 //
-// We only feed the read-side (buttons + axes) into the virtual pad - no FF.
+// Feeds read-side input into the virtual pad and exposes its rumble output.
 
 #pragma once
 
 #include "iforce_protocol.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 // Forward-declare ViGEm types without defining the SDK's pointer aliases.
@@ -21,6 +22,9 @@ namespace iforce {
 
 class VigemGamepad {
 public:
+    using RumbleCallback = std::function<void(uint8_t large_motor,
+        uint8_t small_motor)>;
+
     VigemGamepad() = default;
     ~VigemGamepad();
 
@@ -31,7 +35,10 @@ public:
 
     // Connect to the ViGEm bus and create an Xbox 360 target.
     // Returns false on failure (ViGEmBus driver not installed, etc.).
-    bool connect();
+    bool connect(RumbleCallback rumble_callback = {});
+
+    // Entry point used by ViGEm's asynchronous output notification.
+    void handle_rumble(uint8_t large_motor, uint8_t small_motor);
 
     // Push a new DeviceState into the virtual pad.
     // Returns false on failure (target unplugged, etc.).
@@ -45,6 +52,7 @@ public:
 private:
     _VIGEM_CLIENT_T* client_ = nullptr;
     _VIGEM_TARGET_T* target_ = nullptr;
+    RumbleCallback rumble_callback_;
     std::string last_error_;
 };
 

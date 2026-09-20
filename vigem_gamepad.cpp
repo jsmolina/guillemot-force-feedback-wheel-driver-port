@@ -20,6 +20,24 @@
 
 namespace iforce {
 
+#ifdef _WIN32
+#define IFORCE_VIGEM_CALLBACK CALLBACK
+#else
+#define IFORCE_VIGEM_CALLBACK
+#endif
+
+static void IFORCE_VIGEM_CALLBACK rumble_notification(
+    PVIGEM_CLIENT,
+    PVIGEM_TARGET,
+    UCHAR large_motor,
+    UCHAR small_motor,
+    UCHAR,
+    UCHAR,
+    PVOID user_data) {
+    auto* gamepad = static_cast<VigemGamepad*>(user_data);
+    gamepad->handle_rumble(large_motor, small_motor);
+}
+
 VigemGamepad::~VigemGamepad() {
     disconnect();
 }
@@ -27,6 +45,7 @@ VigemGamepad::~VigemGamepad() {
 VigemGamepad::VigemGamepad(VigemGamepad&& other) noexcept
     : client_(other.client_),
       target_(other.target_),
+      rumble_callback_(std::move(other.rumble_callback_)),
       last_error_(std::move(other.last_error_)) {
     other.client_ = nullptr;
     other.target_ = nullptr;
@@ -37,6 +56,7 @@ VigemGamepad& VigemGamepad::operator=(VigemGamepad&& other) noexcept {
         disconnect();
         client_ = other.client_;
         target_ = other.target_;
+        rumble_callback_ = std::move(other.rumble_callback_);
         last_error_ = std::move(other.last_error_);
         other.client_ = nullptr;
         other.target_ = nullptr;
@@ -44,10 +64,12 @@ VigemGamepad& VigemGamepad::operator=(VigemGamepad&& other) noexcept {
     return *this;
 }
 
-bool VigemGamepad::connect() {
+bool VigemGamepad::connect(RumbleCallback rumble_callback) {
     if (is_connected()) {
         return true; // already up
     }
+
+    rumble_callback_ = std::move(rumble_callback);
 
     // 1. Allocate + connect the ViGEm client.
     client_ = vigem_alloc();
@@ -88,7 +110,17 @@ bool VigemGamepad::connect() {
         return false;
     }
 
+    if (rumble_callback_) {
+        vigem_target_x360_register_notification(
+            target_, rumble_notification, this);
+    }
+
     return true;
+}
+
+void VigemGamepad::handle_rumble(uint8_t large_motor, uint8_t small_motor) {
+    if (rumble_callback_)
+        rumble_callback_(large_motor, small_motor);
 }
 
 bool VigemGamepad::update(const DeviceState& state) {
@@ -180,6 +212,7 @@ bool VigemGamepad::update(const DeviceState& state) {
 void VigemGamepad::disconnect() {
     if (target_ != nullptr) {
         if (client_ != nullptr) {
+            vigem_target_x360_unregister_notification(target_);
             vigem_target_remove(client_, target_);
         }
         vigem_target_free(target_);

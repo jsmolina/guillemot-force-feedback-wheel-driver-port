@@ -3,7 +3,7 @@
 // usb_device.h
 //
 // Thin RAII wrapper around libusb for opening the Guillemot Force
-// Feedback Racing Wheel (06f8:0004) and reading its interrupt-IN endpoint.
+// Feedback Racing Wheel (06f8:0004) and using its interrupt endpoints.
 
 #pragma once
 
@@ -52,6 +52,14 @@ public:
     // Returns false on timeout or USB error (check last_error()).
     // `timeout_ms == 0` means "wait forever".
     bool read(std::vector<uint8_t>& buffer, int timeout_ms, int* transferred);
+
+    // Send one already-framed I-Force packet to EP_OUT_ADDR.
+    bool write(const std::vector<uint8_t>& packet, int timeout_ms = 1000);
+
+    // Read a vendor identification response such as the Linux driver's B/O/M
+    // queries. The returned buffer includes the request byte at index 0.
+    bool query(uint8_t request, std::vector<uint8_t>& response,
+        int timeout_ms = 1000);
 
     void close();
 
