@@ -32,7 +32,6 @@ static void IFORCE_VIGEM_CALLBACK rumble_notification(
     UCHAR large_motor,
     UCHAR small_motor,
     UCHAR,
-    UCHAR,
     PVOID user_data) {
     auto* gamepad = static_cast<VigemGamepad*>(user_data);
     gamepad->handle_rumble(large_motor, small_motor);
