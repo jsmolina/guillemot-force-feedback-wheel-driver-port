@@ -26,16 +26,17 @@ namespace iforce {
 #define IFORCE_VIGEM_CALLBACK
 #endif
 
+static VigemGamepad* g_rumble_gamepad = nullptr;
+
 static void IFORCE_VIGEM_CALLBACK rumble_notification(
     PVIGEM_CLIENT,
     PVIGEM_TARGET,
     UCHAR large_motor,
     UCHAR small_motor,
     UCHAR,
-    UCHAR,
-    PVOID user_data) {
-    auto* gamepad = static_cast<VigemGamepad*>(user_data);
-    gamepad->handle_rumble(large_motor, small_motor);
+    UCHAR) {
+    if (g_rumble_gamepad != nullptr)
+        g_rumble_gamepad->handle_rumble(large_motor, small_motor);
 }
 
 VigemGamepad::~VigemGamepad() {
@@ -111,8 +112,8 @@ bool VigemGamepad::connect(RumbleCallback rumble_callback) {
     }
 
     if (rumble_callback_) {
-        vigem_target_x360_register_notification(
-            target_, rumble_notification, this);
+        g_rumble_gamepad = this;
+        vigem_target_x360_register_notification(target_, rumble_notification);
     }
 
     return true;
@@ -213,6 +214,8 @@ void VigemGamepad::disconnect() {
     if (target_ != nullptr) {
         if (client_ != nullptr) {
             vigem_target_x360_unregister_notification(target_);
+            if (g_rumble_gamepad == this)
+                g_rumble_gamepad = nullptr;
             vigem_target_remove(client_, target_);
         }
         vigem_target_free(target_);
