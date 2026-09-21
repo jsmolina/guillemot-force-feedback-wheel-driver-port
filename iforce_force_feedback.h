@@ -67,17 +67,16 @@ private:
     static constexpr uint8_t kSmallMotorEffectId = 2;
 
     // Device memory layout. Impact needs a magnitude modifier (2B) and an
-    // envelope modifier (14B); each periodic channel needs one period
-    // modifier (12B). Laid out back-to-back with no overlap: 40B total.
+    // envelope modifier (14B); each periodic channel needs a period modifier
+    // (12B) and an inert envelope modifier (14B) because some older I-Force
+    // firmware mishandles the protocol's 0xFFFF "no envelope" sentinel.
     static constexpr uint16_t kImpactMagnitudeModifier = 0;
     static constexpr uint16_t kImpactEnvelopeModifier = 2;
     static constexpr uint16_t kLargeMotorPeriodModifier = 16;
-    static constexpr uint16_t kSmallMotorPeriodModifier = 28;
-    static constexpr uint16_t kMinimumMemory = 40;
-
-    // Effect packet's second modifier address (attack/fade block). The
-    // periodic channels don't use one; 0xFFFF is the protocol's "none".
-    static constexpr uint16_t kNoSecondModifier = 0xFFFF;
+    static constexpr uint16_t kLargeMotorEnvelopeModifier = 28;
+    static constexpr uint16_t kSmallMotorPeriodModifier = 42;
+    static constexpr uint16_t kSmallMotorEnvelopeModifier = 54;
+    static constexpr uint16_t kMinimumMemory = 68;
 
     // Waveform bytes (iforce-ff.c wave_code values): square feels sharp
     // and buzzy, sine feels smoother and deeper.
@@ -92,6 +91,12 @@ private:
     static constexpr std::chrono::seconds kEffectRearmInterval{ 30 };
     static constexpr int kImpactDurationMs = 250;
     static constexpr int16_t kImpactTriggerThreshold = 4000;
+
+    // Hardware autocenter spring strength, 0-100. This port has no
+    // separate layer (game/userspace ioctl) that re-enables centering
+    // after init the way the kernel driver assumes, so initialize()
+    // must turn it on itself rather than deferring/zeroing it.
+    static constexpr uint8_t kAutocenterStrength = 0x64;
 
     bool send_command(uint16_t command, const std::vector<uint8_t>& data);
     bool install_impact_effect();

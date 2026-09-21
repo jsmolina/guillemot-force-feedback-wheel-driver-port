@@ -83,14 +83,16 @@ bool IForceFeedback::initialize() {
         device_memory_end_ = static_cast<uint16_t>(response[1])
             | (static_cast<uint16_t>(response[2]) << 8);
     }
-    std::printf("** Query device memory: %d", device_memory_end_);
     if (device_memory_end_ < kMinimumMemory) {
         set_error("I-Force device reports too little effect memory");
         return false;
     }
 
-    // Disable the device's built-in centering spring, then enable FF.
-    if (!send_command(kCmdAutocenter, { 0x03, 0x00 })
+    // Enable the device's built-in centering spring at a real strength.
+    // (The kernel driver zeroes this at init and expects a separate
+    // userspace/game layer to re-enable it via the FF autocenter ioctl;
+    // this program has no such layer, so it must set it itself.)
+    if (!send_command(kCmdAutocenter, { 0x03, kAutocenterStrength })
         || !send_command(kCmdAutocenter, { 0x04, 0x01 })
         || !send_command(kCmdEnable, { 0x04 })) {
         return false;
@@ -171,10 +173,7 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
 
     positive_impact_ = !positive_impact_;
     const int16_t signed_level = positive_impact_ ? level : -level;
-    if (!send_command(kCmdMagnitude, {
-            low_byte(kImpactMagnitudeModifier),
-            high_byte(kImpactMagnitudeModifier),
-            signed_level_byte(signed_level) })) {
+    if (!send_command(kCmdMagnitude, { low_byte(kImpactMagnitudeModifier), high_byte(kImpactMagnitudeModifier), signed_level_byte(signed_level) })) {
         return;
     }
     send_command(kCmdPlay, { kImpactEffectId, 0x01, 0x01 });
@@ -246,16 +245,33 @@ bool IForceFeedback::install_impact_effect() {
 
 bool IForceFeedback::install_periodic_channel(uint8_t effect_id,
     uint8_t wave_code, uint16_t period_ms, uint16_t modifier_address) {
+    const uint16_t envelope_address = (modifier_address == kLargeMotorPeriodModifier)
+        ? kLargeMotorEnvelopeModifier
+        : kSmallMotorEnvelopeModifier;
+
     // Write the period modifier at zero magnitude first (idle) ...
     if (!update_periodic_magnitude(modifier_address, period_ms, 0))
         return false;
 
-    // ... then create the effect core referencing it. No second
-    // modifier (attack/fade) block: this is a steady continuous rumble,
-    // not a shaped one-shot.
+    // ... then allocate an inert envelope (attack/fade block) explicitly.
+    // Some older I-Force firmware does not handle the protocol "no envelope"
+    // 0xFFFF sentinel reliably, so this avoids dereferencing/invalidating it.
+    if (!send_command(kCmdEnvelope, {
+                                        low_byte(envelope_address),
+                                        high_byte(envelope_address),
+                                        0,
+                                        0,
+                                        0,
+                                        100,
+                                        0,
+                                        0,
+                                    })) {
+        return false;
+    }
+
     if (!send_command(kCmdEffect,
             effect_core(effect_id, wave_code, 0x20, 0xFFFF,
-                modifier_address, kNoSecondModifier))) {
+                modifier_address, envelope_address))) {
         return false;
     }
 
