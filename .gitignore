@@ -1,6 +1,7 @@
 .DS_Store
 # Prerequisites
 *.d
+iforce_linux_reference
 
 # Compiled Object files
 *.slo

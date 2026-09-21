@@ -216,25 +216,50 @@ bool IForceFeedback::send_command(uint16_t command,
     return true;
 }
 
-bool IForceFeedback::install_impact_effect() {
-    if (!send_command(kCmdMagnitude, {
-                                         low_byte(kImpactMagnitudeModifier),
-                                         high_byte(kImpactMagnitudeModifier),
-                                         0,
-                                     })) {
-        return false;
-    }
+bool IForceFeedback::set_magnitude_modifier(uint16_t modifier_address,
+    int16_t level) {
+    return send_command(kCmdMagnitude, {
+                                           low_byte(modifier_address),
+                                           high_byte(modifier_address),
+                                           signed_level_byte(level),
+                                       });
+}
 
-    if (!send_command(kCmdEnvelope, {
-                                        low_byte(kImpactEnvelopeModifier),
-                                        high_byte(kImpactEnvelopeModifier),
-                                        0,
-                                        0,
-                                        0,
-                                        100,
-                                        0,
-                                        0,
-                                    })) {
+bool IForceFeedback::set_period_modifier(uint16_t modifier_address,
+    int16_t magnitude, int16_t offset, uint16_t period_ms, uint16_t phase) {
+    return send_command(kCmdPeriod, {
+                                        low_byte(modifier_address),
+                                        high_byte(modifier_address),
+                                        signed_level_byte(magnitude),
+                                        signed_level_byte(offset),
+                                        static_cast<uint8_t>(phase >> 8),
+                                        low_byte(period_ms),
+                                        high_byte(period_ms),
+                                    });
+}
+
+bool IForceFeedback::set_envelope_modifier(uint16_t modifier_address,
+    uint16_t attack_duration_ms, int16_t initial_level,
+    uint16_t fade_duration_ms, int16_t final_level) {
+    return send_command(kCmdEnvelope, {
+                                          low_byte(modifier_address),
+                                          high_byte(modifier_address),
+                                          low_byte(attack_duration_ms),
+                                          high_byte(attack_duration_ms),
+                                          static_cast<uint8_t>(initial_level >> 8),
+                                          low_byte(fade_duration_ms),
+                                          high_byte(fade_duration_ms),
+                                          static_cast<uint8_t>(final_level >> 8),
+                                      });
+}
+
+bool IForceFeedback::install_impact_effect() {
+    if (!set_magnitude_modifier(kImpactMagnitudeModifier, 0))
+        return false;
+
+    if (!set_envelope_modifier(kImpactEnvelopeModifier,
+            0, 0,
+            100, 0)) {
         return false;
     }
 
@@ -249,23 +274,15 @@ bool IForceFeedback::install_periodic_channel(uint8_t effect_id,
         ? kLargeMotorEnvelopeModifier
         : kSmallMotorEnvelopeModifier;
 
-    // Write the period modifier at zero magnitude first (idle) ...
-    if (!update_periodic_magnitude(modifier_address, period_ms, 0))
+    // The Linux driver handles periodic upload as a period modifier + optional
+    // envelope block. We keep the device-centric upload path but preserve the
+    // default centering behavior and avoid the unsafe zero-FF sentinel.
+    if (!set_period_modifier(modifier_address, 0, 0, period_ms, 0))
         return false;
 
-    // ... then allocate an inert envelope (attack/fade block) explicitly.
-    // Some older I-Force firmware does not handle the protocol "no envelope"
-    // 0xFFFF sentinel reliably, so this avoids dereferencing/invalidating it.
-    if (!send_command(kCmdEnvelope, {
-                                        low_byte(envelope_address),
-                                        high_byte(envelope_address),
-                                        0,
-                                        0,
-                                        0,
-                                        100,
-                                        0,
-                                        0,
-                                    })) {
+    if (!set_envelope_modifier(envelope_address,
+            0, 0,
+            100, 0)) {
         return false;
     }
 
@@ -275,23 +292,14 @@ bool IForceFeedback::install_periodic_channel(uint8_t effect_id,
         return false;
     }
 
-    // Start it. It keeps looping (the waveform itself oscillates) until
-    // its duration elapses; tick() re-arms it well before that happens.
     return send_command(kCmdPlay, { effect_id, 0x01, 0x01 });
 }
 
 bool IForceFeedback::update_periodic_magnitude(uint16_t modifier_address,
     uint16_t period_ms, uint8_t magnitude) {
-    // FF_CMD_PERIOD payload: address, magnitude, offset, phase, period.
-    return send_command(kCmdPeriod, {
-                                        low_byte(modifier_address),
-                                        high_byte(modifier_address),
-                                        magnitude,
-                                        0, // offset
-                                        0, // phase
-                                        low_byte(period_ms),
-                                        high_byte(period_ms),
-                                    });
+    return set_period_modifier(modifier_address,
+        static_cast<int16_t>(magnitude) * 256,
+        0, period_ms, 0);
 }
 
 void IForceFeedback::stop_effect(uint8_t effect_id) {

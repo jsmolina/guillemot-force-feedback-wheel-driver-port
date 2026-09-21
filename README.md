@@ -2,8 +2,9 @@
 
 User-mode port to modern Windows of the Linux `iforce` input path for the Guillemot/Thrustmaster Force
 Feedback Racing Wheel (`VID 0x06f8`, `PID 0x0004`). The current port exposes
-the wheel as a virtual Xbox 360 controller through ViGEm. Force-feedback
-output is not implemented yet.
+the wheel as a virtual Xbox 360 controller through ViGEm and implements a
+conservative I-Force force-feedback output path that keeps the wheel
+self-centering while driving low-power rumble and impact effects.
 <img width="1600" height="1200" alt="image" src="https://github.com/user-attachments/assets/596a1903-14df-4c75-82cd-42b04e7bb9bb" />
 
 ## Installing
@@ -91,6 +92,30 @@ The port maps the wheel to the virtual pad's left thumb X axis, gas to the
 right trigger, brake to the left trigger, and the eight wheel buttons to
 Xbox 360 buttons. Unsupported packet types and truncated packets are
 ignored.
+
+## What changed from the earlier implementation
+
+The earlier version was closer to a generic approximation than a real I-Force
+upload path. It had three concrete problems:
+
+1. The centering command used a raw 0..100-style value instead of the Linux
+   I-Force payload encoding, so the spring strength was effectively wrong and
+   the wheel stopped self-centering.
+2. The rumble magnitude was halved (`motor >> 1`), which made the output too
+   weak to be noticeable in browser-based Xbox 360 vibration tests.
+3. The periodic effects relied on the protocol's `0xFFFF` "no second modifier"
+   sentinel instead of a real envelope block, which is known to be unreliable on
+   older I-Force firmware revisions.
+
+The current implementation fixes those issues by:
+
+- keeping autocentering enabled at startup with the Linux-compatible payload
+  `{ 0x03, strength }` followed by `{ 0x04, 0x01 }`;
+- mapping XInput rumble into the full safe I-Force range (`0..0x7F`) instead of
+  discarding half of the usable signal;
+- uploading explicit per-channel modifier blocks for the periodic channels and
+  the impact effect, matching the upstream Linux `iforce-ff.c` structure more
+  closely.
 
 ## Force Feedback Behaviour
 

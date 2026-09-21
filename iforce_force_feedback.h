@@ -98,6 +98,18 @@ private:
     static constexpr uint8_t kAutocenterStrength = 0x7F;
 
     bool send_command(uint16_t command, const std::vector<uint8_t>& data);
+    bool set_magnitude_modifier(uint16_t modifier_address, int16_t level);
+    bool set_period_modifier(uint16_t modifier_address, int16_t magnitude,
+        int16_t offset, uint16_t period_ms, uint16_t phase);
+    bool set_envelope_modifier(uint16_t modifier_address,
+        uint16_t attack_duration_ms, int16_t initial_level,
+        uint16_t fade_duration_ms, int16_t final_level);
+    bool set_magnitude_modifier(uint16_t modifier_address, int16_t level);
+    bool set_period_modifier(uint16_t modifier_address, int16_t magnitude,
+        int16_t offset, uint16_t period_ms, uint16_t phase);
+    bool set_envelope_modifier(uint16_t modifier_address,
+        uint16_t attack_duration_ms, int16_t initial_level,
+        uint16_t fade_duration_ms, int16_t final_level);
     bool install_impact_effect();
     bool install_periodic_channel(uint8_t effect_id, uint8_t wave_code,
         uint16_t period_ms, uint16_t modifier_address);

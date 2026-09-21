@@ -12,6 +12,7 @@
 #include <Windows.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -30,6 +31,7 @@
 using namespace iforce;
 
 static std::atomic<bool> g_stop{ false };
+static std::atomic<float> g_rumble_scale{ 1.0f };
 
 #ifdef _WIN32
 static BOOL WINAPI console_handler(DWORD ctrl) {
@@ -89,7 +91,12 @@ int main() {
     if (force_feedback.is_enabled()) {
         rumble_callback = [&force_feedback](uint8_t large_motor,
                               uint8_t small_motor) {
-            force_feedback.on_rumble(large_motor, small_motor);
+            const float scale = g_rumble_scale.load();
+            const uint8_t adjusted_large = static_cast<uint8_t>(std::clamp(
+                static_cast<float>(large_motor) * scale, 0.0f, 255.0f));
+            const uint8_t adjusted_small = static_cast<uint8_t>(std::clamp(
+                static_cast<float>(small_motor) * scale, 0.0f, 255.0f));
+            force_feedback.on_rumble(adjusted_large, adjusted_small);
         };
     }
     if (!pad.connect(rumble_callback)) {
@@ -108,6 +115,35 @@ int main() {
     log("");
 
     while (!g_stop.load()) {
+#ifdef _WIN32
+        static bool key_a_prev = false;
+        static bool key_plus_prev = false;
+        static bool key_minus_prev = false;
+
+        const bool key_a_now = (GetAsyncKeyState('A') & 0x8000) != 0;
+        if (key_a_now && !key_a_prev && force_feedback.is_enabled()) {
+            force_feedback.on_rumble(255, 255);
+            log("debug: test impact pulse triggered");
+        }
+        key_a_prev = key_a_now;
+
+        const bool key_plus_now = (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000) != 0;
+        if (key_plus_now && !key_plus_prev) {
+            float next = g_rumble_scale.load() + 0.1f;
+            g_rumble_scale.store(std::clamp(next, 0.1f, 2.0f));
+            log("ramp strength: %.2f", g_rumble_scale.load());
+        }
+        key_plus_prev = key_plus_now;
+
+        const bool key_minus_now = (GetAsyncKeyState(VK_OEM_MINUS) & 0x8000) != 0;
+        if (key_minus_now && !key_minus_prev) {
+            float next = g_rumble_scale.load() - 0.1f;
+            g_rumble_scale.store(std::clamp(next, 0.1f, 2.0f));
+            log("ramp strength: %.2f", g_rumble_scale.load());
+        }
+        key_minus_prev = key_minus_now;
+#endif
+
         int transferred = 0;
         if (!dev.read(buf, /*timeout_ms=*/1000, &transferred)) {
             if (g_stop.load())
