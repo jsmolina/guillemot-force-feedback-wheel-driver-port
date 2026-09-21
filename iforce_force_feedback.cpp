@@ -26,11 +26,12 @@ namespace {
         return static_cast<uint8_t>((level < 0 ? level + 255 : level) >> 8);
     }
 
-    // XInput motor magnitudes are 0..255. Map to a device magnitude byte
-    // in 0..0x7F: the iforce.h HIFIX80 comment notes 0x80 is a value some
-    // firmwares mishandle, so staying at or below 0x7F avoids it entirely.
+    // XInput motor magnitudes are 0..255, but the I-Force protocol's safe
+    // working range for these effect bytes is 0..0x7F. The Linux driver warns
+    // that 0x80 is a special value that some firmware revisions mishandle, so
+    // we use the full safe scale instead of cutting the range in half.
     uint8_t motor_to_magnitude_byte(uint8_t motor) {
-        return static_cast<uint8_t>(motor >> 1);
+        return static_cast<uint8_t>(std::min<uint16_t>(motor, 0x7F));
     }
 
     std::vector<uint8_t> effect_core(uint8_t effect_id, uint8_t effect_type,

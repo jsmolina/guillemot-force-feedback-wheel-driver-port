@@ -6,15 +6,15 @@ the wheel as a virtual Xbox 360 controller through ViGEm. Force-feedback
 output is not implemented yet.
 <img width="1600" height="1200" alt="image" src="https://github.com/user-attachments/assets/596a1903-14df-4c75-82cd-42b04e7bb9bb" />
 
-
 ## Installing
-On Windows, this project is a *user-mode bridge*, not a kernel driver. It reads the physical wheel with libusb and creates a virtual Xbox 360 controller through ViGEmBus.
 
-*Setup*
+On Windows, this project is a _user-mode bridge_, not a kernel driver. It reads the physical wheel with libusb and creates a virtual Xbox 360 controller through ViGEmBus.
 
-1. Install the *ViGEmBus* driver on Windows.
+_Setup_
+
+1. Install the _ViGEmBus_ driver on Windows.
 2. Connect the wheel.
-3. Use Zadig to replace the wheel’s HID driver with *WinUSB* or *libusbK*:
+3. Use Zadig to replace the wheel’s HID driver with _WinUSB_ or _libusbK_:
    - Select the Guillemot wheel.
    - Enable “List All Devices”.
    - Install WinUSB/libusbK for the correct interface, usually interface 0.
@@ -24,13 +24,11 @@ On Windows, this project is a *user-mode bridge*, not a kernel driver. It reads 
 powershell
 .\iforce_vigem_port.exe
 
-
 You should see messages indicating:
 
 text
 Wheel 06f8:0004 opened
 ViGEm Xbox 360 target online
-
 
 Press Ctrl+C to stop it.
 
@@ -39,10 +37,9 @@ Verify the virtual controller with:
 text
 Win+R -> joy.cpl
 
-
 The wheel should appear as an Xbox 360 controller. Steering maps to left-stick X, gas to the right trigger, brake to the left trigger, and wheel buttons to controller buttons.
 
-Force feedback is currently not implemented. If the program cannot open the wheel, check that Zadig assigned WinUSB/libusbK to the correct interface and that no other application is using the device.
+Force feedback is implemented in a conservative, Linux-compatible way. The port re-enables the wheel's built-in centering spring at startup and then uploads a small set of I-Force effects for rumble/impacts. If the program cannot open the wheel, check that Zadig assigned WinUSB/libusbK to the correct interface and that no other application is using the device.
 
 ## Device Behaviour
 
@@ -95,29 +92,50 @@ right trigger, brake to the left trigger, and the eight wheel buttons to
 Xbox 360 buttons. Unsupported packet types and truncated packets are
 ignored.
 
-## Experimental Force Feedback
+## Force Feedback Behaviour
 
-The port now includes a conservative I-Force output path for the Guillemot
-wheel. At startup it queries the device's effect memory and enables two
-effects only when the device reports enough memory:
+The port now installs a small, Linux-compatible I-Force effect set for the
+Guillemot wheel. The startup flow is intentionally conservative and mirrors the
+Linux driver semantics:
 
-- A low-strength `Damper` condition effect (`25%`) that remains active while
-  the virtual controller is connected.
-- A short `Constant Force` impact effect (`250 ms`) driven by the Xbox 360
-  `LargeMotor` and `SmallMotor` rumble values.
+1. Query device readiness (`'O'`) and then effect memory (`'B'`).
+2. Re-enable the built-in centering spring with the correct I-Force
+   `FF_CMD_AUTOCENTER` payload.
+3. Upload a single impact effect and two periodic rumble channels.
+4. Enable force feedback and keep the looping periodic effects re-armed so they
+   do not silently expire on-device after the 16-bit duration counter elapses.
 
-XInput does not provide force direction or Immersion effect type, so impact
-polarity alternates to avoid applying a permanent steering bias. This is an
-approximation for collisions and vibration, not a faithful translation of
-`IFC22.dll` effects. `Friction`, springs, barriers, waveforms, and custom
-effects are not exposed by the virtual Xbox 360 interface.
+The centering step is the important compatibility detail: the Linux driver sends
+`FF_CMD_AUTOCENTER` as `{ 0x03, magnitude >> 9 }` followed by `{ 0x04, 0x01 }`.
+The payload byte is not a raw 0..100 percentage value; for full centering the
+encoded strength byte is `0x7F`.
 
-The implementation follows the Linux `iforce` packet lifecycle: it queries
-device readiness and memory, disables the built-in autocenter, uploads effect
-modifiers, enables force feedback, and stops all effects during shutdown.
-Keep the first physical test at low speed and be ready to disconnect the
-wheel. If the device does not answer the readiness or memory query, the
-program continues in input-only mode.
+The port currently installs:
+
+- one short `FF_CONSTANT` impact pulse (roughly 250 ms), driven by the Xbox
+  360 rumble values and alternated in polarity to avoid applying a permanent
+  steering bias;
+- two continuous `FF_PERIODIC` channels, one for the large motor and one for the
+  small motor, using distinct waveforms and periods to feel like a rumble bed
+  rather than a single generic buzz.
+
+The periodic channels intentionally use an explicit envelope modifier instead of
+relying on the protocol's `0xFFFF` "no envelope" sentinel, because older I-Force
+firmware is known to mishandle that sentinel. This matches the Linux driver's
+practical behavior more closely than the idealized protocol description.
+
+The force output is intentionally conservative: XInput rumble values are mapped
+into the device's safe `0..0x7F` range and the device's `0x80` byte is avoided,
+because the Linux driver notes that `0x80` is a special value that some
+firmware revisions mishandle. This keeps the output stable and avoids creating a
+bad or inconsistent force profile.
+
+The port still does not attempt to reproduce the richer Immersion/IFC22 effect
+model: friction, barriers, springs, custom waveform shaping, and other richer
+force effects are not exposed by the Xbox 360 virtual controller API.
+
+If the wheel does not answer the readiness or memory query, the program falls
+back to input-only mode and continues without force feedback.
 
 ## Build and Test
 
@@ -142,4 +160,5 @@ dependencies, and physical wheel hardware is required for force feedback.
 - Linux packet decoding: https://github.com/torvalds/linux/blob/master/drivers/input/joystick/iforce/iforce-packets.c
 
 # AI
+
 Is this done by AI? Yes, it is. I developed my last windows driver 25 years ago, I just wanted my USB wheel to work in windows.
