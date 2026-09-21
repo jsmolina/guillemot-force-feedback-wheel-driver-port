@@ -88,10 +88,9 @@ bool IForceFeedback::initialize() {
         return false;
     }
 
-    // Enable the device's built-in centering spring at a real strength.
-    // (The kernel driver zeroes this at init and expects a separate
-    // userspace/game layer to re-enable it via the FF autocenter ioctl;
-    // this program has no such layer, so it must set it itself.)
+    // Re-enable the wheel's built-in centering spring using the Linux
+    // iforce packet encoding: the second byte is the encoded strength,
+    // not a 0..100 percentage value.
     if (!send_command(kCmdAutocenter, { 0x03, kAutocenterStrength })
         || !send_command(kCmdAutocenter, { 0x04, 0x01 })
         || !send_command(kCmdEnable, { 0x04 })) {

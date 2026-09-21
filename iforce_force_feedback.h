@@ -92,11 +92,10 @@ private:
     static constexpr int kImpactDurationMs = 250;
     static constexpr int16_t kImpactTriggerThreshold = 4000;
 
-    // Hardware autocenter spring strength, 0-100. This port has no
-    // separate layer (game/userspace ioctl) that re-enables centering
-    // after init the way the kernel driver assumes, so initialize()
-    // must turn it on itself rather than deferring/zeroing it.
-    static constexpr uint8_t kAutocenterStrength = 0x64;
+    // Linux iforce_set_autocenter() takes a 16-bit magnitude and sends
+    // data[1] = magnitude >> 9. For full centering, the single payload byte
+    // is 0x7F (127); anything smaller weakens or zeroes the spring.
+    static constexpr uint8_t kAutocenterStrength = 0x7F;
 
     bool send_command(uint16_t command, const std::vector<uint8_t>& data);
     bool install_impact_effect();
