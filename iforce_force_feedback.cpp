@@ -27,11 +27,13 @@ namespace {
     }
 
     // XInput motor magnitudes are 0..255, but the I-Force protocol's safe
-    // working range for these effect bytes is 0..0x7F. The Linux driver warns
-    // that 0x80 is a special value that some firmware revisions mishandle, so
-    // we use the full safe scale instead of cutting the range in half.
+    // working range for these effect bytes is 0..0x7F (iforce.h's HIFIX80
+    // comment: 0x80 is a special value some firmware revisions mishandle).
+    // Scale rather than clamp -- clamping flattens every input above 127 to
+    // the same force, so the whole top half of the rumble range feels
+    // identical.
     uint8_t motor_to_magnitude_byte(uint8_t motor) {
-        return static_cast<uint8_t>(std::min<uint16_t>(motor, 0x7F));
+        return static_cast<uint8_t>((static_cast<uint16_t>(motor) * 0x7F) / 0xFF);
     }
 
     std::vector<uint8_t> effect_core(uint8_t effect_id, uint8_t effect_type,
@@ -136,20 +138,51 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
 
     // --- Continuous rumble bed: update each periodic channel's magnitude
     // live. Skip the write if nothing changed, so idle/steady rumble
-    // doesn't spam the interrupt OUT endpoint.
+    // doesn't spam the interrupt OUT endpoint. Also throttle to one
+    // PERIOD update per ~20ms per channel so the firmware has time to
+    // absorb the previous update before we overwrite it.
+    const auto now = std::chrono::steady_clock::now();
+
     const uint8_t large_magnitude = motor_to_magnitude_byte(large_motor);
     if (large_magnitude != last_large_magnitude_) {
-        if (update_periodic_magnitude(kLargeMotorPeriodModifier,
-                kLargeMotorPeriodMs, large_magnitude)) {
-            last_large_magnitude_ = large_magnitude;
+        if (now - last_large_period_send_ >= kMinPeriodicUpdateInterval) {
+            if (update_periodic_magnitude(kLargeMotorPeriodModifier,
+                    kLargeMotorPeriodMs, large_magnitude)) {
+                last_large_magnitude_ = large_magnitude;
+                last_large_period_send_ = now;
+                consecutive_write_failures_ = 0;
+            } else {
+                if (++consecutive_write_failures_ == 1
+                    || consecutive_write_failures_ % 20 == 0) {
+                    set_error("PERIOD update for large motor failed: "
+                        + device_.last_error());
+                }
+                // On a write failure we intentionally do NOT update
+                // last_large_magnitude_: the next on_rumble() call will
+                // retry the same value, which is what we want until the
+                // endpoint recovers.
+            }
         }
     }
 
     const uint8_t small_magnitude = motor_to_magnitude_byte(small_motor);
     if (small_magnitude != last_small_magnitude_) {
-        if (update_periodic_magnitude(kSmallMotorPeriodModifier,
-                kSmallMotorPeriodMs, small_magnitude)) {
-            last_small_magnitude_ = small_magnitude;
+        if (now - last_small_period_send_ >= kMinPeriodicUpdateInterval) {
+            if (update_periodic_magnitude(kSmallMotorPeriodModifier,
+                    kSmallMotorPeriodMs, small_magnitude)) {
+                last_small_magnitude_ = small_magnitude;
+                last_small_period_send_ = now;
+                consecutive_write_failures_ = 0;
+            } else {
+                // Note: ++ on the same counter as the large-motor path so
+                // the log throttle reflects total failures across both
+                // channels, not per-channel.
+                if (++consecutive_write_failures_ == 1
+                    || consecutive_write_failures_ % 20 == 0) {
+                    set_error("PERIOD update for small motor failed: "
+                        + device_.last_error());
+                }
+            }
         }
     }
 
@@ -158,7 +191,6 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
     const uint16_t combined = static_cast<uint16_t>(large_motor) * 3
         + static_cast<uint16_t>(small_motor);
     const int16_t level = static_cast<int16_t>(std::min<uint16_t>(combined * 64, 12000));
-    const auto now = std::chrono::steady_clock::now();
 
     if (level < kImpactTriggerThreshold) {
         was_above_threshold_ = false;
@@ -174,9 +206,12 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
     positive_impact_ = !positive_impact_;
     const int16_t signed_level = positive_impact_ ? level : -level;
     if (!send_command(kCmdMagnitude, { low_byte(kImpactMagnitudeModifier), high_byte(kImpactMagnitudeModifier), signed_level_byte(signed_level) })) {
+        set_error("impact MAGNITUDE update failed: " + device_.last_error());
         return;
     }
-    send_command(kCmdPlay, { kImpactEffectId, 0x01, 0x01 });
+    if (!play_effect(kImpactEffectId, 1)) {
+        set_error("impact PLAY failed: " + device_.last_error());
+    }
 }
 
 void IForceFeedback::tick() {
@@ -188,10 +223,13 @@ void IForceFeedback::tick() {
     if (now - last_rearm_ < kEffectRearmInterval)
         return;
 
-    // Re-issue Play for the two looping channels so their on-device
-    // duration countdown (max ~65.5s) never runs out mid-session.
-    send_command(kCmdPlay, { kLargeMotorEffectId, 0x01, 0x01 });
-    send_command(kCmdPlay, { kSmallMotorEffectId, 0x01, 0x01 });
+    // Safety net only. install_periodic_channel() now starts these channels
+    // with a 255x repeat count (~4.6 hours), so this should never actually be
+    // needed. It stays because a firmware revision that ignores the 0x41
+    // repeat mode would otherwise go silent after 65.5s with no recovery.
+    // Once 0x41 is confirmed on real hardware, tick() can be deleted.
+    play_effect(kLargeMotorEffectId, kPeriodicRepeatCount);
+    play_effect(kSmallMotorEffectId, kPeriodicRepeatCount);
     last_rearm_ = now;
 }
 
@@ -214,6 +252,13 @@ bool IForceFeedback::send_command(uint16_t command,
         return false;
     }
     return true;
+}
+
+bool IForceFeedback::play_effect(uint8_t effect_id, uint8_t repeat_count) {
+    const uint8_t mode = repeat_count == 0
+        ? 0x00
+        : (repeat_count > 1 ? 0x41 : 0x01);
+    return send_command(kCmdPlay, { effect_id, mode, repeat_count });
 }
 
 bool IForceFeedback::set_magnitude_modifier(uint16_t modifier_address,
@@ -292,7 +337,7 @@ bool IForceFeedback::install_periodic_channel(uint8_t effect_id,
         return false;
     }
 
-    return send_command(kCmdPlay, { effect_id, 0x01, 0x01 });
+    return play_effect(effect_id, kPeriodicRepeatCount);
 }
 
 bool IForceFeedback::update_periodic_magnitude(uint16_t modifier_address,
@@ -303,7 +348,7 @@ bool IForceFeedback::update_periodic_magnitude(uint16_t modifier_address,
 }
 
 void IForceFeedback::stop_effect(uint8_t effect_id) {
-    send_command(kCmdPlay, { effect_id, 0x00, 0x00 });
+    play_effect(effect_id, 0);
 }
 
 void IForceFeedback::set_error(const std::string& message) {

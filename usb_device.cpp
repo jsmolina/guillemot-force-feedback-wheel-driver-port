@@ -142,19 +142,36 @@ UsbOpenResult UsbDevice::open(uint16_t vid, uint16_t pid) {
 }
 
 bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transferred) {
+    std::lock_guard<std::mutex> lock(io_mutex_);
     if (!is_open()) {
         last_error_ = "UsbDevice::read() called on a closed device";
         return false;
     }
     buffer.resize(EP_MAX_PACKET);
     int actual = 0;
-    const int rc = libusb_interrupt_transfer(
+    int rc = libusb_interrupt_transfer(
         handle_,
         ep_in_,
         buffer.data(),
         static_cast<int>(buffer.size()),
         &actual,
         timeout_ms);
+
+    // I-Force firmware occasionally NAKs an interrupt IN URB when it is busy
+    // absorbing an effect-upload burst. On WinUSB a sustained NAK can flip the
+    // endpoint into a sticky STALL state which would otherwise wedge every
+    // subsequent read until process exit. Clear the halt and retry once.
+    if (rc == LIBUSB_ERROR_PIPE || rc == LIBUSB_ERROR_IO) {
+        libusb_clear_halt(handle_, ep_in_);
+        actual = 0;
+        rc = libusb_interrupt_transfer(
+            handle_,
+            ep_in_,
+            buffer.data(),
+            static_cast<int>(buffer.size()),
+            &actual,
+            timeout_ms);
+    }
 
     if (transferred)
         *transferred = actual;
@@ -176,6 +193,7 @@ bool UsbDevice::read(std::vector<uint8_t>& buffer, int timeout_ms, int* transfer
 }
 
 bool UsbDevice::write(const std::vector<uint8_t>& packet, int timeout_ms) {
+    std::lock_guard<std::mutex> lock(io_mutex_);
     if (!is_open()) {
         last_error_ = "UsbDevice::write() called on a closed device";
         return false;
@@ -186,13 +204,29 @@ bool UsbDevice::write(const std::vector<uint8_t>& packet, int timeout_ms) {
     }
 
     int transferred = 0;
-    const int rc = libusb_interrupt_transfer(
+    int rc = libusb_interrupt_transfer(
         handle_,
         ep_out_,
         const_cast<unsigned char*>(packet.data()),
         static_cast<int>(packet.size()),
         &transferred,
         timeout_ms);
+
+    // The single most common cause of "USB IO error after many presses" is a
+    // STALL on the OUT endpoint that the host never clears. On WinUSB the
+    // halt is sticky: every subsequent write returns LIBUSB_ERROR_PIPE forever.
+    // Clear the halt and retry the transfer once before giving up.
+    if (rc == LIBUSB_ERROR_PIPE || rc == LIBUSB_ERROR_IO) {
+        libusb_clear_halt(handle_, ep_out_);
+        transferred = 0;
+        rc = libusb_interrupt_transfer(
+            handle_,
+            ep_out_,
+            const_cast<unsigned char*>(packet.data()),
+            static_cast<int>(packet.size()),
+            &transferred,
+            timeout_ms);
+    }
 
     if (rc != LIBUSB_SUCCESS) {
         last_error_ = std::string("libusb_interrupt_transfer (OUT) failed: ")
@@ -210,13 +244,14 @@ bool UsbDevice::write(const std::vector<uint8_t>& packet, int timeout_ms) {
 
 bool UsbDevice::query(uint8_t request, std::vector<uint8_t>& response,
     int timeout_ms) {
+    std::lock_guard<std::mutex> lock(io_mutex_);
     if (!is_open()) {
         last_error_ = "UsbDevice::query() called on a closed device";
         return false;
     }
 
     response.assign(EP_MAX_PACKET, 0);
-    const int transferred = libusb_control_transfer(
+    int transferred = libusb_control_transfer(
         handle_,
         LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR
             | LIBUSB_RECIPIENT_INTERFACE,
@@ -226,6 +261,23 @@ bool UsbDevice::query(uint8_t request, std::vector<uint8_t>& response,
         response.data(),
         static_cast<uint16_t>(response.size()),
         timeout_ms);
+
+    // Control transfers can also stall (e.g. unsupported query like 'M' on
+    // some firmware revisions). Clear the stall on the control endpoint 0
+    // so the next query can succeed.
+    if (transferred == LIBUSB_ERROR_PIPE || transferred == LIBUSB_ERROR_IO) {
+        libusb_clear_halt(handle_, 0);
+        transferred = libusb_control_transfer(
+            handle_,
+            LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR
+                | LIBUSB_RECIPIENT_INTERFACE,
+            request,
+            0,
+            static_cast<uint16_t>(iface_),
+            response.data(),
+            static_cast<uint16_t>(response.size()),
+            timeout_ms);
+    }
 
     if (transferred < 0) {
         last_error_ = std::string("libusb_control_transfer failed: ")
@@ -244,7 +296,22 @@ bool UsbDevice::query(uint8_t request, std::vector<uint8_t>& response,
     return true;
 }
 
+int UsbDevice::clear_halt_in() {
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    if (!is_open())
+        return LIBUSB_ERROR_NO_DEVICE;
+    return libusb_clear_halt(handle_, ep_in_);
+}
+
+int UsbDevice::clear_halt_out() {
+    std::lock_guard<std::mutex> lock(io_mutex_);
+    if (!is_open())
+        return LIBUSB_ERROR_NO_DEVICE;
+    return libusb_clear_halt(handle_, ep_out_);
+}
+
 void UsbDevice::close() {
+    std::lock_guard<std::mutex> lock(io_mutex_);
     if (handle_) {
         if (claimed_) {
             libusb_release_interface(handle_, iface_);

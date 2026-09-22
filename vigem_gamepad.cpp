@@ -48,6 +48,7 @@ VigemGamepad::VigemGamepad(VigemGamepad&& other) noexcept
       last_error_(std::move(other.last_error_)) {
     other.client_ = nullptr;
     other.target_ = nullptr;
+    rebind_notification();
 }
 
 VigemGamepad& VigemGamepad::operator=(VigemGamepad&& other) noexcept {
@@ -59,6 +60,7 @@ VigemGamepad& VigemGamepad::operator=(VigemGamepad&& other) noexcept {
         last_error_ = std::move(other.last_error_);
         other.client_ = nullptr;
         other.target_ = nullptr;
+        rebind_notification();
     }
     return *this;
 }
@@ -110,11 +112,40 @@ bool VigemGamepad::connect(RumbleCallback rumble_callback) {
     }
 
     if (rumble_callback_) {
-        vigem_target_x360_register_notification(
+        const VIGEM_ERROR notify_rc = vigem_target_x360_register_notification(
             client_, target_, rumble_notification, this);
+        if (!VIGEM_SUCCESS(notify_rc)) {
+            // Deliberately non-fatal: buttons/axes still work without
+            // rumble. But this is the one failure mode where everything
+            // downstream (FF init, packet framing, USB writes) can look
+            // completely correct while force feedback simply never fires,
+            // because handle_rumble() was never actually wired up on the
+            // ViGEm side. Surface it via last_error() so the caller can
+            // log it instead of it disappearing silently.
+            last_error_ = std::string("vigem_target_x360_register_notification failed (code=")
+                + std::to_string(static_cast<int>(notify_rc))
+                + "). Rumble/force-feedback notifications will not be delivered.";
+        }
     }
 
     return true;
+}
+
+void VigemGamepad::rebind_notification() {
+    if (target_ == nullptr)
+        return;
+    // See the declaration comment: re-point the SDK's registration at the
+    // (possibly new, post-move) `this` instead of leaving it bound to
+    // whatever address happened to call connect() originally.
+    vigem_target_x360_unregister_notification(target_);
+    if (rumble_callback_) {
+        const VIGEM_ERROR notify_rc = vigem_target_x360_register_notification(
+            client_, target_, rumble_notification, this);
+        if (!VIGEM_SUCCESS(notify_rc)) {
+            last_error_ = std::string("vigem_target_x360_register_notification failed after move (code=")
+                + std::to_string(static_cast<int>(notify_rc)) + ").";
+        }
+    }
 }
 
 void VigemGamepad::handle_rumble(uint8_t large_motor, uint8_t small_motor) {

@@ -105,6 +105,14 @@ int main() {
         force_feedback.shutdown();
         return EXIT_FAILURE;
     }
+    // connect() can succeed (buttons/axes work) while still failing to wire
+    // up the rumble notification -- that failure is deliberately non-fatal,
+    // so it only shows up in last_error() rather than the return value.
+    // Check for it here or force-feedback can look correct end-to-end and
+    // still never receive a single rumble callback.
+    if (!pad.last_error().empty()) {
+        log("warning: %s", pad.last_error().c_str());
+    }
     log("ViGEm Xbox 360 target online.");
 
     // --- Main loop -------------------------------------------------------
@@ -115,15 +123,34 @@ int main() {
     log("");
 
     while (!g_stop.load()) {
+        // Re-arm the two looping periodic channels before their 16-bit
+        // effect-duration counter elapses (~65.5s). tick() is internally
+        // rate-limited (kEffectRearmInterval=30s), so calling it every
+        // iteration is cheap. Without this, the rumble bed silently dies
+        // after one minute of uptime even though initialize() succeeded.
+        force_feedback.tick();
+
 #ifdef _WIN32
         static bool key_a_prev = false;
         static bool key_plus_prev = false;
         static bool key_minus_prev = false;
 
         const bool key_a_now = (GetAsyncKeyState('A') & 0x8000) != 0;
-        if (key_a_now && !key_a_prev && force_feedback.is_enabled()) {
-            force_feedback.on_rumble(255, 255);
-            log("debug: test impact pulse triggered");
+        if (key_a_now != key_a_prev && force_feedback.is_enabled()) {
+            if (key_a_now) {
+                force_feedback.on_rumble(255, 255);
+                log("debug: test impact pulse triggered");
+                if (!force_feedback.last_error().empty()) {
+                    log("debug: on_rumble reported: %s",
+                        force_feedback.last_error().c_str());
+                }
+            } else {
+                // Release: without this, on_rumble()'s edge-detect and
+                // magnitude dedup both latch at "255" forever after the
+                // first press, so a second press is a silent no-op and
+                // the wheel is left rumbling at full strength indefinitely.
+                force_feedback.on_rumble(0, 0);
+            }
         }
         key_a_prev = key_a_now;
 
@@ -145,7 +172,7 @@ int main() {
 #endif
 
         int transferred = 0;
-        if (!dev.read(buf, /*timeout_ms=*/1000, &transferred)) {
+        if (!dev.read(buf, /*timeout_ms=*/100, &transferred)) {
             if (g_stop.load())
                 break;
             // Timeouts are expected when the wheel is idle; only log real
@@ -182,8 +209,13 @@ int main() {
 
     log("");
     log("Shutting down...");
-    pad.disconnect();
+    // Disable force feedback FIRST: on_rumble() checks `enabled_` and
+    // returns immediately once shutdown() clears it. If a rumble
+    // notification is mid-flight on ViGEm's worker thread while we tear
+    // down, this ensures it safely no-ops instead of racing pad.disconnect()
+    // tearing down the target it's about to be called through.
     force_feedback.shutdown();
+    pad.disconnect();
     dev.close();
     log("Done.");
     return EXIT_SUCCESS;

@@ -50,6 +50,15 @@ public:
     bool is_connected() const { return target_ != nullptr; }
 
 private:
+    // Re-binds the SDK's rumble notification to `this`. The registration
+    // table keys the callback's user_data pointer to whichever
+    // VigemGamepad* was current at register time; after a move that
+    // pointer is stale, so any notification arriving after the move would
+    // dereference the wrong (possibly destroyed) object. Called from the
+    // move constructor/assignment operator whenever a connected target is
+    // being taken over.
+    void rebind_notification();
+
     _VIGEM_CLIENT_T* client_ = nullptr;
     _VIGEM_TARGET_T* target_ = nullptr;
     RumbleCallback rumble_callback_;

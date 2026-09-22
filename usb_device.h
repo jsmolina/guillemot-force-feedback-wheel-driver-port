@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,19 @@ struct UsbOpenResult {
 //   - UsbDevice::read()    -> blocking interrupt transfer (no async API here)
 //   - destructor           -> release interface, close handle, exit context
 //
+// All transfers (read, write, query) are serialized through an internal
+// mutex so that the main-loop thread (which blocks on read()) and the
+// ViGEm rumble-callback thread (which calls write()) cannot race against
+// libusb's internal event-handling state. Without this serialization,
+// concurrent sync transfers on a single libusb context on Windows/WinUSB
+// can produce spurious LIBUSB_ERROR_IO returns and silently dropped
+// completions.
+//
+// On any PIPE/IO error the wrapper also calls libusb_clear_halt() on the
+// affected endpoint before retrying once. Interrupt endpoints on I-Force
+// firmware occasionally NAK/STALL a packet they cannot immediately absorb;
+// on WinUSB that halt is sticky and would otherwise wedge every subsequent
+// transfer until process exit.
 class UsbDevice {
 public:
     UsbDevice() = default;
@@ -54,16 +68,29 @@ public:
     bool read(std::vector<uint8_t>& buffer, int timeout_ms, int* transferred);
 
     // Send one already-framed I-Force packet to EP_OUT_ADDR.
-    bool write(const std::vector<uint8_t>& packet, int timeout_ms = 1000);
+    // Default timeout is intentionally short (100 ms): the device normally
+    // accepts an interrupt OUT transfer within one USB frame (1 ms). A long
+    // timeout blocks the rumble callback thread and risks backing up the
+    // ViGEm client. On a real failure the wrapper clears the endpoint
+    // halt and retries once before giving up.
+    bool write(const std::vector<uint8_t>& packet, int timeout_ms = 100);
 
     // Read a vendor identification response such as the Linux driver's B/O/M
     // queries. The returned buffer includes the request byte at index 0.
     bool query(uint8_t request, std::vector<uint8_t>& response,
         int timeout_ms = 1000);
 
+    // Clear a sticky STALL on the IN or OUT interrupt endpoint. Safe to call
+    // even when the endpoint is not stalled. Returns the libusb status code.
+    int clear_halt_in();
+    int clear_halt_out();
+
     void close();
 
-    const std::string& last_error() const { return last_error_; }
+    std::string last_error() const {
+        std::lock_guard<std::mutex> lock(io_mutex_);
+        return last_error_;
+    }
     bool is_open() const { return handle_ != nullptr; }
 
 private:
@@ -74,6 +101,13 @@ private:
     uint8_t ep_out_ = EP_OUT_ADDR;
     bool detached_ = false; // we detached the kernel driver
     bool claimed_ = false;  // we claimed the interface
+
+    // Serializes all libusb transfers on this handle across threads.
+    // See class comment for rationale.
+    mutable std::mutex io_mutex_;
+
+    // last_error_ is written under io_mutex_ and must only be read under the
+    // same lock. Use last_error_copy() for a thread-safe snapshot.
     std::string last_error_;
 };
 

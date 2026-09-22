@@ -92,12 +92,34 @@ private:
     static constexpr int kImpactDurationMs = 250;
     static constexpr int16_t kImpactTriggerThreshold = 4000;
 
+    // Minimum spacing between two periodic-magnitude writes for the same
+    // modifier. The Linux kernel's iforce_upload_periodic path gates updates
+    // through the FF_CORE_UPDATE bit + the device's 0x02 status report; the
+    // Windows port has no equivalent flow control, so we throttle on the
+    // host side instead. The device firmware on the Guillemot 06f8:0004
+    // takes ~16ms to absorb a PERIOD update (one USB frame), so 20ms gives
+    // a safe margin. Below this interval, duplicate-or-near-duplicate
+    // magnitude values are coalesced.
+    static constexpr std::chrono::milliseconds kMinPeriodicUpdateInterval{ 20 };
+
     // Linux iforce_set_autocenter() takes a 16-bit magnitude and sends
     // data[1] = magnitude >> 9. For full centering, the single payload byte
     // is 0x7F (127); anything smaller weakens or zeroes the spring.
     static constexpr uint8_t kAutocenterStrength = 0x7F;
 
+    // Repeat count for the two looping periodic channels. The effect-core
+    // "duration" field is 16 bits (max 0xFFFF ms = 65.5s), so a single
+    // playback always lapses. The Linux driver's iforce_control_playback()
+    // encodes a repeat count instead: 255 * 65.5s is ~4.6 hours, which
+    // outlasts any realistic session.
+    static constexpr uint8_t kPeriodicRepeatCount = 0xFF;
+
     bool send_command(uint16_t command, const std::vector<uint8_t>& data);
+
+    // Start/stop an effect. Mirrors Linux iforce_control_playback():
+    // data[1] is the mode (0 = stop, 0x01 = play once, 0x41 = repeat) and
+    // data[2] carries the repeat count.
+    bool play_effect(uint8_t effect_id, uint8_t repeat_count);
     bool set_magnitude_modifier(uint16_t modifier_address, int16_t level);
     bool set_period_modifier(uint16_t modifier_address, int16_t magnitude,
         int16_t offset, uint16_t period_ms, uint16_t phase);
@@ -128,6 +150,17 @@ private:
 
     // Re-arm bookkeeping for the 16-bit effect duration limit.
     std::chrono::steady_clock::time_point last_rearm_{};
+
+    // Last time we actually wrote a PERIOD packet for each periodic channel.
+    // Used by the throttle in update_periodic_magnitude to avoid burying the
+    // device under back-to-back updates that the firmware cannot absorb.
+    std::chrono::steady_clock::time_point last_large_period_send_{};
+    std::chrono::steady_clock::time_point last_small_period_send_{};
+
+    // Counts of write failures since startup, surfaced via last_error() so
+    // the user can see in the log when the OUT path started failing.
+    // Reset on every successful write.
+    int consecutive_write_failures_ = 0;
 
     uint16_t device_memory_end_ = 0;
     std::string last_error_;
