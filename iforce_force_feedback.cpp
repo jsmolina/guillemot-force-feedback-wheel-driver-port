@@ -8,6 +8,7 @@
 #include "iforce_force_feedback.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <thread>
 
 namespace iforce {
@@ -36,6 +37,13 @@ namespace {
         return static_cast<uint8_t>((static_cast<uint16_t>(motor) * 0x7F) / 0xFF);
     }
 
+    // Effect-core direction, as the high byte of Linux FF's 16-bit polar
+    // angle (make_core: data[5] = HI(direction)). With axes = 0x20 the device
+    // resolves force from this angle, and 0x0000 ("north") projects to zero
+    // on a wheel's single X axis -- the effect plays and reports playing=1
+    // while producing no felt force. 0x4000 is 90 degrees: pure +X.
+    constexpr uint8_t kDirectionX = 0x40;
+
     std::vector<uint8_t> effect_core(uint8_t effect_id, uint8_t effect_type,
         uint8_t axes, uint16_t duration,
         uint16_t modifier1, uint16_t modifier2) {
@@ -45,7 +53,7 @@ namespace {
             axes,
             low_byte(duration),
             high_byte(duration),
-            0,
+            kDirectionX,
             0,
             0,
             low_byte(modifier1),
@@ -136,14 +144,18 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
     if (!enabled_)
         return;
 
+    const uint8_t large_magnitude = motor_to_magnitude_byte(large_motor);
+    const uint8_t small_magnitude = motor_to_magnitude_byte(small_motor);
+    std::fprintf(stderr, "debug: on_rumble called: large_motor=%u (→%u) small_motor=%u (→%u)\n",
+        static_cast<unsigned>(large_motor), static_cast<unsigned>(large_magnitude),
+        static_cast<unsigned>(small_motor), static_cast<unsigned>(small_magnitude));
+
     // --- Continuous rumble bed: update each periodic channel's magnitude
     // live. Skip the write if nothing changed, so idle/steady rumble
     // doesn't spam the interrupt OUT endpoint. Also throttle to one
     // PERIOD update per ~20ms per channel so the firmware has time to
     // absorb the previous update before we overwrite it.
     const auto now = std::chrono::steady_clock::now();
-
-    const uint8_t large_magnitude = motor_to_magnitude_byte(large_motor);
     if (large_magnitude != last_large_magnitude_) {
         if (now - last_large_period_send_ >= kMinPeriodicUpdateInterval) {
             if (update_periodic_magnitude(kLargeMotorPeriodModifier,
@@ -165,7 +177,6 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
         }
     }
 
-    const uint8_t small_magnitude = motor_to_magnitude_byte(small_motor);
     if (small_magnitude != last_small_magnitude_) {
         if (now - last_small_period_send_ >= kMinPeriodicUpdateInterval) {
             if (update_periodic_magnitude(kSmallMotorPeriodModifier,
@@ -190,7 +201,10 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
     // threshold, not on every callback while rumble stays high.
     const uint16_t combined = static_cast<uint16_t>(large_motor) * 3
         + static_cast<uint16_t>(small_motor);
-    const int16_t level = static_cast<int16_t>(std::min<uint16_t>(combined * 64, 12000));
+    // Cap at 0x7F00 so HIFIX80 yields 0x7F -- the top of the protocol's safe
+    // byte range -- when both motors are maxed. combined maxes at 1020, so
+    // the *32 scale reaches the cap exactly at full rumble.
+    const int16_t level = static_cast<int16_t>(std::min<uint16_t>(combined * 32, 0x7F00));
 
     if (level < kImpactTriggerThreshold) {
         was_above_threshold_ = false;
