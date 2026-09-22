@@ -146,7 +146,7 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
 
     const uint8_t large_magnitude = motor_to_magnitude_byte(large_motor);
     const uint8_t small_magnitude = motor_to_magnitude_byte(small_motor);
-    std::fprintf(stderr, "debug: on_rumble called: large_motor=%u (→%u) small_motor=%u (→%u)\n",
+    std::fprintf(stderr, "rumble: large=%u (mag %u) small=%u (mag %u)\n",
         static_cast<unsigned>(large_motor), static_cast<unsigned>(large_magnitude),
         static_cast<unsigned>(small_motor), static_cast<unsigned>(small_magnitude));
 

@@ -103,9 +103,10 @@ private:
     static constexpr std::chrono::milliseconds kMinPeriodicUpdateInterval{ 20 };
 
     // Linux iforce_set_autocenter() takes a 16-bit magnitude and sends
-    // data[1] = magnitude >> 9. For full centering, the single payload byte
-    // is 0x7F (127); anything smaller weakens or zeroes the spring.
-    static constexpr uint8_t kAutocenterStrength = 0x7F;
+    // data[1] = magnitude >> 9, so 0x7F (127) is the full-strength spring and
+    // smaller values weaken it. Backed off to ~75% because full strength
+    // fights the driven effects noticeably.
+    static constexpr uint8_t kAutocenterStrength = 0x60;
 
     // Repeat count for the two looping periodic channels. The effect-core
     // "duration" field is 16 bits (max 0xFFFF ms = 65.5s), so a single

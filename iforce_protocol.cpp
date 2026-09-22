@@ -9,12 +9,9 @@
 //   - drivers/input/joystick/iforce/iforce-packets.c (packet dispatch)
 //
 // The read path remains a direct port of the kernel decoder. Force-feedback
-// output has a separate implementation. Note: decode_packet logs 0x02 status
-// packets to stderr for diagnostics.
+// output has a separate implementation. This decoder is side-effect free.
 
 #include "iforce_protocol.h"
-
-#include <cstdio>
 
 namespace iforce {
 
@@ -119,30 +116,15 @@ bool decode_packet(const uint8_t* data, std::size_t length, DeviceState& out) {
         return true;
     }
 
-    case CMD_STATUS: {
-        // Not an input packet; decode_packet returns false so the caller
-        // skips the ViGEm update path. But we log it so the user can see
-        // the device's acknowledgements of our modifier uploads, which is
-        // extremely useful when diagnosing "why does the wheel go silent
-        // after a few seconds of rumble".
-        StatusReport sr;
-        if (decode_status_report(data, length, sr) && sr.valid) {
-            std::fprintf(stderr, "iforce status: effect=%u playing=%d deadman=%d",
-                static_cast<unsigned>(sr.effect_id),
-                static_cast<int>(sr.playing),
-                static_cast<int>(sr.deadman));
-            if (!sr.ready_modifier_addresses.empty()) {
-                std::fprintf(stderr, " ready=");
-                for (std::size_t i = 0; i < sr.ready_modifier_addresses.size(); ++i) {
-                    if (i) std::fprintf(stderr, ",");
-                    std::fprintf(stderr, "%u", static_cast<unsigned>(sr.ready_modifier_addresses[i]));
-                }
-            }
-            std::fprintf(stderr, "\n");
-            std::fflush(stderr);
-        }
+    case CMD_STATUS:
+        // Not an input packet, so return false and let the caller skip the
+        // ViGEm update path. Nothing is parsed here: on 06f8:0004 the
+        // payload[1] "effect id" turns out to be a free-running counter that
+        // wraps at 20 rather than an effect id, so mark_core_as_ready()
+        // semantics do not hold and the contents are not actionable.
+        // decode_status_report() remains available for callers that want to
+        // inspect these packets deliberately.
         return false;
-    }
 
     case CMD_JOYSTICK:
     default:
