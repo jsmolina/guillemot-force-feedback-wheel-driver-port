@@ -1,4 +1,4 @@
-# guillemot-force-feedback-wheel-driver-port
+# iforce-feedback-wheel-driver-port
 
 User-mode port to modern Windows of the Linux `iforce` input path for the Guillemot/Thrustmaster Force
 Feedback Racing Wheel (`VID 0x06f8`, `PID 0x0004`). The current port exposes
@@ -46,8 +46,8 @@ Force feedback is implemented in a conservative, Linux-compatible way. The port 
 
 The Linux driver identifies this device as a wheel using the `abs_wheel`
 layout. USB input arrives through interface 0 on interrupt endpoint `0x82`.
-The output endpoint is `0x02`, although this port does not currently send
-force-feedback commands.
+The output endpoint is `0x02`, which this port uses to upload and drive
+I-Force force-feedback effects (see "Force Feedback Behaviour" below).
 
 Each USB interrupt packet is handled as follows:
 
@@ -62,24 +62,36 @@ byte 7       hat data
 ```
 
 The wheel packet requires all seven payload bytes after the packet identifier.
-The button bitmap uses the following Linux `btn_wheel[]` order:
 
-| Bit | Meaning                 |
-| --- | ----------------------- |
-| 0   | Gear down / left paddle |
-| 1   | Gear up / right paddle  |
-| 2   | Wheel button 1          |
-| 3   | Wheel button 2          |
-| 4   | Wheel button 3          |
-| 5   | Wheel button 4          |
-| 6   | Wheel button 5          |
-| 7   | Wheel button 6          |
+The Linux `btn_wheel[]` table is a guess for this PID and gets several
+controls wrong (it has the two paddle shifters reversed and treats the right
+hat's up/right directions as generic buttons). The table below reflects the
+actual bitmap, measured on the physical wheel by pressing each control and
+reading the raw report:
+
+| Bit | Meaning              |
+| --- | -------------------- |
+| 0   | Right paddle shifter |
+| 1   | Left paddle shifter  |
+| 2   | Right face button    |
+| 3   | Left face button     |
+| 4   | Gear up              |
+| 5   | Gear down            |
+| 6   | Right hat, up        |
+| 7   | Right hat, right     |
 
 The high nibble of the hat byte is hat 0, which is presented as the virtual
 controller D-pad. The Linux driver maps hat values 0 through 7 to the eight
-compass directions; values 8 through 15 are treated as neutral. The low
-nibble contains the secondary hat bits used by other device layouts and is
-not used by this wheel mapping.
+compass directions; values 8 through 15 are treated as neutral.
+
+The low nibble is hat 1, and on this wheel it carries the *other two*
+directions of the right hat: bit 0 is down and bit 1 is left. So the right
+hat is split across two bytes -- left/down live in the hat 1 nibble, up/right
+live in bits 6/7 of the button byte above -- and no single-nibble decoder
+(including the Linux kernel's own second-hat bitmask logic, whose axis signs
+are inverted relative to what this wheel reports) can express it. The port
+decodes these four bits directly rather than through a shared hat-to-axis
+helper; see `right_hat` in `iforce_protocol.h`.
 
 The Linux input ranges are:
 
@@ -89,9 +101,27 @@ The Linux input ranges are:
 - Hat axes: `-1` to `1`
 
 The port maps the wheel to the virtual pad's left thumb X axis, gas to the
-right trigger, brake to the left trigger, and the eight wheel buttons to
-Xbox 360 buttons. Unsupported packet types and truncated packets are
-ignored.
+right trigger, and brake to the left trigger. All ten controls (two paddles,
+two face buttons, two gear positions, and the four right-hat directions) map
+one-to-one onto the ten Xbox 360 digital buttons:
+
+| Control            | Xbox 360 button |
+| ------------------ | ---------------- |
+| Right paddle        | Y                |
+| Left paddle         | X                |
+| Right face button   | Start            |
+| Left face button    | Back             |
+| Gear up             | Right shoulder   |
+| Gear down           | Left shoulder    |
+| Right hat up        | Left thumb click |
+| Right hat right     | B                |
+| Right hat down      | Right thumb click|
+| Right hat left      | A                |
+
+The gear stick took the shoulder buttons because that is where racing games
+put their default shift bindings; the paddles land on X/Y instead. The left
+hat (hat 0) drives the D-pad as described above. Unsupported packet types and
+truncated packets are ignored.
 
 ## What changed from the earlier implementation
 
@@ -132,17 +162,25 @@ Linux driver semantics:
 
 The centering step is the important compatibility detail: the Linux driver sends
 `FF_CMD_AUTOCENTER` as `{ 0x03, magnitude >> 9 }` followed by `{ 0x04, 0x01 }`.
-The payload byte is not a raw 0..100 percentage value; for full centering the
-encoded strength byte is `0x7F`.
+The payload byte is not a raw 0..100 percentage value; `0x7F` is full-strength
+centering. The port currently sends `0x60` (~75% strength) because full
+strength fights noticeably with the driven rumble/impact effects.
 
 The port currently installs:
 
 - one short `FF_CONSTANT` impact pulse (roughly 250 ms), driven by the Xbox
   360 rumble values and alternated in polarity to avoid applying a permanent
-  steering bias;
+  steering bias. Its magnitude is scaled so full combined rumble reaches the
+  protocol's safe `0x7F` ceiling;
 - two continuous `FF_PERIODIC` channels, one for the large motor and one for the
   small motor, using distinct waveforms and periods to feel like a rumble bed
   rather than a single generic buzz.
+
+Every effect core also sets an explicit polar direction (`0x4000`, i.e. 90
+degrees / pure +X) in the effect-core packet. This mattered in practice: a
+direction of `0x0000` ("north") has no component on a wheel's single steering
+axis, so the device accepted and played the effect -- and reported it as
+playing in its status packets -- while producing no felt force at all.
 
 The periodic channels intentionally use an explicit envelope modifier instead of
 relying on the protocol's `0xFFFF` "no envelope" sentinel, because older I-Force
