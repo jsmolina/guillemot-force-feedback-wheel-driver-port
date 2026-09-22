@@ -174,18 +174,29 @@ bool VigemGamepad::update(const DeviceState& state) {
     // The gear stick takes the shoulders because that is where racing games
     // put their default shift bindings; the paddles land on X/Y.
     //
-    //   iforce bit | measured control         | X360 button
-    //   -----------+--------------------------+----------------------------
-    //      0       | right paddle shifter     | XUSB_GAMEPAD_Y
-    //      1       | left paddle shifter      | XUSB_GAMEPAD_X
-    //      2       | right face button        | XUSB_GAMEPAD_A
-    //      3       | left face button         | XUSB_GAMEPAD_B
-    //      4       | gear up                  | XUSB_GAMEPAD_RIGHT_SHOULDER
-    //      5       | gear down                | XUSB_GAMEPAD_LEFT_SHOULDER
-    //      6       | (unidentified)           | XUSB_GAMEPAD_BACK
-    //      7       | right d-pad, right       | XUSB_GAMEPAD_START
+    // The right hat is split across both bytes: its left/down directions are
+    // bits in the hat1 nibble, while its up/right directions are bits 6 and 7
+    // of the button byte. No nibble-wide decoder can express that, so it is
+    // handled as four independent buttons below. This exhausts the wheel's
+    // controls, so every X360 digital button is driven exactly once.
+    //
+    //   source            | measured control    | X360 button
+    //   ------------------+---------------------+-------------------------
+    //   buttons bit 0     | right paddle        | XUSB_GAMEPAD_Y
+    //   buttons bit 1     | left paddle         | XUSB_GAMEPAD_X
+    //   buttons bit 2     | right face button   | XUSB_GAMEPAD_START
+    //   buttons bit 3     | left face button    | XUSB_GAMEPAD_BACK
+    //   buttons bit 4     | gear up             | XUSB_GAMEPAD_RIGHT_SHOULDER
+    //   buttons bit 5     | gear down           | XUSB_GAMEPAD_LEFT_SHOULDER
+    //   buttons bit 6     | right hat up        | XUSB_GAMEPAD_LEFT_THUMB
+    //   buttons bit 7     | right hat right     | XUSB_GAMEPAD_B
+    //   hat1    bit 0     | right hat down      | XUSB_GAMEPAD_RIGHT_THUMB
+    //   hat1    bit 1     | right hat left      | XUSB_GAMEPAD_A
     const auto b = [&state](int bit) -> bool {
         return (state.buttons & (1u << bit)) != 0;
+    };
+    const auto h1 = [&state](int bit) -> bool {
+        return (state.hat1 & (1u << bit)) != 0;
     };
 
     if (b(0))
@@ -193,17 +204,21 @@ bool VigemGamepad::update(const DeviceState& state) {
     if (b(1))
         report.wButtons |= XUSB_GAMEPAD_X;
     if (b(2))
-        report.wButtons |= XUSB_GAMEPAD_A;
+        report.wButtons |= XUSB_GAMEPAD_START;
     if (b(3))
-        report.wButtons |= XUSB_GAMEPAD_B;
+        report.wButtons |= XUSB_GAMEPAD_BACK;
     if (b(4))
         report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
     if (b(5))
         report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
-    if (b(6))
-        report.wButtons |= XUSB_GAMEPAD_BACK;
-    if (b(7))
-        report.wButtons |= XUSB_GAMEPAD_START;
+    if (b(right_hat::kUpBitInButtons))
+        report.wButtons |= XUSB_GAMEPAD_LEFT_THUMB;
+    if (b(right_hat::kRightBitInButtons))
+        report.wButtons |= XUSB_GAMEPAD_B;
+    if (h1(right_hat::kDownBitInHat1))
+        report.wButtons |= XUSB_GAMEPAD_RIGHT_THUMB;
+    if (h1(right_hat::kLeftBitInHat1))
+        report.wButtons |= XUSB_GAMEPAD_A;
     // ----- D-pad (from hat 0) -------------------------------------------
     const HatXY hat = hat_to_xy(state.hat0);
     if (hat.x < 0)

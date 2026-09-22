@@ -64,13 +64,19 @@ bool decode_status_report(const uint8_t* data, std::size_t length, StatusReport&
 // ---------------------------------------------------------------------------
 // Parsed device state.
 //
-// Mapping table for the Guillemot Force Feedback Racing Wheel (06f8:0004).
-// This mirrors the kernel's btn_wheel[] + abs_wheel[] tables.
+// Mapping table for the Guillemot Force Feedback Racing Wheel (06f8:0004),
+// measured on the physical wheel. The kernel's btn_wheel[] table is a guess
+// for this PID and gets the two paddles the wrong way round.
 //
 //   Buttons (8 bits in data[5]):
-//     bit 0 -> Gear down / paddle L1
-//     bit 1 -> Gear up   / paddle R1
-//     bit 2..7 -> generic wheel buttons
+//     bit 0 -> right paddle shifter
+//     bit 1 -> left paddle shifter
+//     bit 2 -> right face button
+//     bit 3 -> left face button
+//     bit 4 -> gear up
+//     bit 5 -> gear down
+//     bit 6 -> right hat, up
+//     bit 7 -> right hat, right
 //
 //   Wheel packet payload:
 //     data[0..1] -> signed 16-bit wheel position
@@ -86,9 +92,11 @@ bool decode_status_report(const uint8_t* data, std::size_t length, StatusReport&
 //   hat 0 (high nibble) is an index into the 16-entry direction table, so
 //   it goes through hat_to_xy().
 //
-//   hat 1 (low nibble) is a bitmask, not an index. iforce_report_hats_buttons()
-//   decodes it as bit3 -> X=-1, bit1 -> X=+1, bit0 -> Y=-1, bit2 -> Y=+1.
-//   Feeding it to hat_to_xy() yields garbage directions; use hat1_to_xy().
+//   hat 1 (low nibble) is a bitmask, not an index, and on this wheel it
+//   carries only two of the right hat's four directions -- bit0 is down and
+//   bit1 is left. Up and right arrive as bits 6 and 7 of the button byte
+//   instead. See the right_hat constants below; feeding hat1 to hat_to_xy()
+//   yields garbage directions.
 //
 // Note the kernel registers 06f8:0004 with abs_wheel[], which has no
 // ABS_HAT1X/ABS_HAT1Y, so upstream never reports the second hat for this
@@ -102,7 +110,7 @@ struct DeviceState {
     uint8_t gas_pedal = 0;   // normalized 0..255
     uint8_t brake_pedal = 0; // normalized 0..255
     uint8_t hat0 = 0;        // 4-bit direction code -> hat_to_xy()
-    uint8_t hat1 = 0;        // 4-bit direction bitmask -> hat1_to_xy()
+    uint8_t hat1 = 0;        // right-hat bitmask -> see right_hat below
 };
 
 // Decode one USB interrupt-transfer buffer into a DeviceState.
@@ -130,8 +138,22 @@ struct HatXY {
 // For hat 0 (high nibble of data[6]): table lookup on a direction index.
 HatXY hat_to_xy(uint8_t hat_code);
 
-// For hat 1 (low nibble of data[6]): bitmask decode. Mirrors the second-hat
-// block of the kernel's iforce_report_hats_buttons().
-HatXY hat1_to_xy(uint8_t hat_bits);
+// Right-hat bit positions, measured on the physical 06f8:0004 wheel by
+// pressing each direction and dumping the raw report.
+//
+// The right hat is SPLIT across two bytes: left and down are bits in the
+// hat1 nibble, while up and right are the top two bits of the button byte.
+// No single-nibble decoder can express this, which is why hat1 has no
+// counterpart to hat_to_xy() -- callers test these bits directly.
+//
+// The kernel's second-hat block does not describe this device: it reads all
+// four directions out of the low nibble, and its bit0/bit1 axis signs are
+// inverted relative to what this wheel actually reports.
+namespace right_hat {
+    constexpr uint8_t kDownBitInHat1 = 0;
+    constexpr uint8_t kLeftBitInHat1 = 1;
+    constexpr uint8_t kUpBitInButtons = 6;
+    constexpr uint8_t kRightBitInButtons = 7;
+} // namespace right_hat
 
 } // namespace iforce

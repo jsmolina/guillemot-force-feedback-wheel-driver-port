@@ -28,34 +28,66 @@ static void test_hat0_is_a_direction_index() {
     assert(hat_to_xy(15).x == 0 && hat_to_xy(15).y == 0);
 }
 
-static void test_hat1_is_a_bitmask_not_an_index() {
-    // The whole point of hat1_to_xy: these are bit positions, so the results
-    // must NOT match hat_to_xy() for the same numeric value.
-    assert(hat1_to_xy(0).x == 0 && hat1_to_xy(0).y == 0);     // nothing held
-    assert(hat1_to_xy(1u << 3).x == -1);                      // bit3 -> X=-1
-    assert(hat1_to_xy(1u << 1).x == 1);                       // bit1 -> X=+1
-    assert(hat1_to_xy(1u << 0).y == -1);                      // bit0 -> Y=-1
-    assert(hat1_to_xy(1u << 2).y == 1);                       // bit2 -> Y=+1
+// Build a wheel packet carrying a given button byte and right-hat nibble.
+// data[6] packs hat0 in the high nibble and hat1 in the low nibble; the
+// captures below all had hat0 idle at 0xF.
+static void make_wheel_packet(uint8_t buttons, uint8_t hat1, uint8_t (&out)[8]) {
+    out[0] = 0x03;
+    out[1] = 0x00; out[2] = 0x00; // wheel
+    out[3] = 0x00; out[4] = 0x00; // gas, brake
+    out[5] = 0x00;                // unused by the input path
+    out[6] = buttons;
+    out[7] = static_cast<uint8_t>((0xF << 4) | (hat1 & 0x0F));
+}
 
-    // Diagonal: bit1 (X=+1) | bit2 (Y=+1) -> SE
-    assert(hat1_to_xy((1u << 1) | (1u << 2)).x == 1);
-    assert(hat1_to_xy((1u << 1) | (1u << 2)).y == 1);
+static void test_right_hat_is_split_across_two_bytes() {
+    // These four cases are transcribed from real captures taken by pressing
+    // each direction of the right hat on the physical 06f8:0004 wheel.
+    //
+    //   right hat left   -> buttons 0x00, hat1 0x2
+    //   right hat down   -> buttons 0x00, hat1 0x1
+    //   right hat up     -> buttons 0x40, hat1 0x0
+    //   right hat right  -> buttons 0x80, hat1 0x0
+    //
+    // So the hat straddles both bytes: left/down are hat1 bits, up/right are
+    // the top two bits of the button byte. Any attempt to decode this hat
+    // from the hat1 nibble alone loses half of it.
+    using namespace right_hat;
+    uint8_t packet[8];
+    DeviceState s{};
 
-    // Opposing directions: kernel tests bit3 before bit1, bit0 before bit2,
-    // so the negative axis wins instead of cancelling to 0.
-    assert(hat1_to_xy((1u << 3) | (1u << 1)).x == -1);
-    assert(hat1_to_xy((1u << 0) | (1u << 2)).y == -1);
+    make_wheel_packet(0x00, 0x2, packet);
+    assert(decode_packet(packet, sizeof(packet), s));
+    assert(s.hat1 & (1u << kLeftBitInHat1));
+    assert(!(s.hat1 & (1u << kDownBitInHat1)));
+    assert(s.buttons == 0x00);
 
-    // Guard against anyone "simplifying" hat1 back into a table lookup:
-    // value 1 means Y=-1 as a bitmask, but NE (x=1,y=-1) as an index.
-    assert(hat1_to_xy(1).x == 0);
-    assert(hat_to_xy(1).x == 1);
+    make_wheel_packet(0x00, 0x1, packet);
+    assert(decode_packet(packet, sizeof(packet), s));
+    assert(s.hat1 & (1u << kDownBitInHat1));
+    assert(!(s.hat1 & (1u << kLeftBitInHat1)));
+    assert(s.buttons == 0x00);
+
+    make_wheel_packet(0x40, 0x0, packet);
+    assert(decode_packet(packet, sizeof(packet), s));
+    assert(s.buttons & (1u << kUpBitInButtons));
+    assert(s.hat1 == 0x0);
+
+    make_wheel_packet(0x80, 0x0, packet);
+    assert(decode_packet(packet, sizeof(packet), s));
+    assert(s.buttons & (1u << kRightBitInButtons));
+    assert(s.hat1 == 0x0);
+
+    // The up/right bits are hat directions, not spare buttons -- nothing else
+    // on this wheel drives bit 6 or bit 7.
+    static_assert(kUpBitInButtons == 6, "right hat up moved");
+    static_assert(kRightBitInButtons == 7, "right hat right moved");
 }
 
 static void test_wheel_packet_decode() {
     // id=0x03, then 7 payload bytes.
     // wheel = 0xF000 -> -4096, gas = 255-0x20, brake = 255-0x40,
-    // buttons = 0x81, data[6] = 0x21 -> hat0 = 2 (E), hat1 = 0x1 (Y=-1)
+    // buttons = 0x81, data[6] = 0x21 -> hat0 = 2 (E), hat1 = 0x1 (right hat down)
     const uint8_t packet[] = { 0x03, 0x00, 0xF0, 0x20, 0x40, 0x00, 0x81, 0x21 };
     DeviceState s{};
     assert(decode_packet(packet, sizeof(packet), s));
@@ -65,8 +97,7 @@ static void test_wheel_packet_decode() {
     assert(s.buttons == 0x81);
     assert(s.hat0 == 0x2);
     assert(s.hat1 == 0x1);
-    assert(hat_to_xy(s.hat0).x == 1);   // E
-    assert(hat1_to_xy(s.hat1).y == -1); // bit0
+    assert(hat_to_xy(s.hat0).x == 1); // E
 
     // Truncated packet (kernel: `if (len < 7) break;`) must be rejected.
     DeviceState ignored{};
@@ -94,7 +125,7 @@ static void test_status_report_decode() {
 
 int main() {
     test_hat0_is_a_direction_index();
-    test_hat1_is_a_bitmask_not_an_index();
+    test_right_hat_is_split_across_two_bytes();
     test_wheel_packet_decode();
     test_status_report_decode();
     std::printf("all protocol self-checks passed\n");

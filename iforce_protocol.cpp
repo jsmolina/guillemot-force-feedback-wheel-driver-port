@@ -36,25 +36,6 @@ HatXY hat_to_xy(uint8_t hat_code) {
     return kHatTable[hat_code & 0x0F];
 }
 
-HatXY hat1_to_xy(uint8_t hat_bits) {
-    // Bitmask, not an index -- see the second-hat block of the kernel's
-    // iforce_report_hats_buttons(). The kernel checks bit3 before bit1 and
-    // bit0 before bit2, so opposing directions pressed together resolve to
-    // the negative axis rather than cancelling.
-    HatXY xy{ 0, 0 };
-    if (hat_bits & (1u << 3))
-        xy.x = -1;
-    else if (hat_bits & (1u << 1))
-        xy.x = 1;
-
-    if (hat_bits & (1u << 0))
-        xy.y = -1;
-    else if (hat_bits & (1u << 2))
-        xy.y = 1;
-
-    return xy;
-}
-
 bool decode_status_report(const uint8_t* data, std::size_t length, StatusReport& out) {
     out = StatusReport{};
     if (data == nullptr || length < 1)

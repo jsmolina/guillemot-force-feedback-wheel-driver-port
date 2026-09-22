@@ -8,7 +8,6 @@
 #include "iforce_force_feedback.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <thread>
 
 namespace iforce {
@@ -146,9 +145,6 @@ void IForceFeedback::on_rumble(uint8_t large_motor, uint8_t small_motor) {
 
     const uint8_t large_magnitude = motor_to_magnitude_byte(large_motor);
     const uint8_t small_magnitude = motor_to_magnitude_byte(small_motor);
-    std::fprintf(stderr, "rumble: large=%u (mag %u) small=%u (mag %u)\n",
-        static_cast<unsigned>(large_motor), static_cast<unsigned>(large_magnitude),
-        static_cast<unsigned>(small_motor), static_cast<unsigned>(small_magnitude));
 
     // --- Continuous rumble bed: update each periodic channel's magnitude
     // live. Skip the write if nothing changed, so idle/steady rumble

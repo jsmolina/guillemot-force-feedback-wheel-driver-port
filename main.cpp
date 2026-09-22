@@ -139,10 +139,8 @@ int main() {
         if (key_a_now != key_a_prev && force_feedback.is_enabled()) {
             if (key_a_now) {
                 force_feedback.on_rumble(255, 255);
-                log("debug: test impact pulse triggered");
                 if (!force_feedback.last_error().empty()) {
-                    log("debug: on_rumble reported: %s",
-                        force_feedback.last_error().c_str());
+                    log("rumble error: %s", force_feedback.last_error().c_str());
                 }
             } else {
                 // Release: without this, on_rumble()'s edge-detect and
@@ -188,18 +186,6 @@ int main() {
         DeviceState new_state{};
         if (!decode_packet(buf.data(), buf.size(), new_state)) {
             continue; // not an input packet, ignore
-        }
-
-        if (new_state.buttons != state.buttons
-            || new_state.hat0 != state.hat0
-            || new_state.hat1 != state.hat1) {
-            log("buttons: 0x%02X  bits=%d%d%d%d%d%d%d%d (bit7..bit0)  hat0=0x%X hat1=0x%X",
-                new_state.buttons,
-                (new_state.buttons >> 7) & 1, (new_state.buttons >> 6) & 1,
-                (new_state.buttons >> 5) & 1, (new_state.buttons >> 4) & 1,
-                (new_state.buttons >> 3) & 1, (new_state.buttons >> 2) & 1,
-                (new_state.buttons >> 1) & 1, (new_state.buttons >> 0) & 1,
-                new_state.hat0, new_state.hat1);
         }
 
         // Re-connection / target-loss detection: ViGEmClient returns an
