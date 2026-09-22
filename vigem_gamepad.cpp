@@ -166,32 +166,40 @@ bool VigemGamepad::update(const DeviceState& state) {
     // Map the iforce button bitmap (kernel btn_wheel[] order) onto
     // the Xbox 360 button set.
     //
-    //   iforce bit | meaning                  | X360 button
+    // Bit assignments below were measured on the physical 06f8:0004 wheel by
+    // pressing each control and reading the raw bitmap -- they are not the
+    // kernel's btn_wheel[] guesses, which had the two paddles the wrong way
+    // round.
+    //
+    // The gear stick takes the shoulders because that is where racing games
+    // put their default shift bindings; the paddles land on X/Y.
+    //
+    //   iforce bit | measured control         | X360 button
     //   -----------+--------------------------+----------------------------
-    //      0       | gear down / paddle L1   | XUSB_GAMEPAD_LEFT_SHOULDER
-    //      1       | gear up   / paddle R1   | XUSB_GAMEPAD_RIGHT_SHOULDER
-    //      2       | generic BTN_1            | XUSB_GAMEPAD_A
-    //      3       | generic BTN_2            | XUSB_GAMEPAD_B
-    //      4       | generic BTN_3            | XUSB_GAMEPAD_X
-    //      5       | generic BTN_4            | XUSB_GAMEPAD_Y
-    //      6       | generic BTN_5            | XUSB_GAMEPAD_BACK
-    //      7       | generic BTN_6            | XUSB_GAMEPAD_START
+    //      0       | right paddle shifter     | XUSB_GAMEPAD_Y
+    //      1       | left paddle shifter      | XUSB_GAMEPAD_X
+    //      2       | right face button        | XUSB_GAMEPAD_A
+    //      3       | left face button         | XUSB_GAMEPAD_B
+    //      4       | gear up                  | XUSB_GAMEPAD_RIGHT_SHOULDER
+    //      5       | gear down                | XUSB_GAMEPAD_LEFT_SHOULDER
+    //      6       | (unidentified)           | XUSB_GAMEPAD_BACK
+    //      7       | right d-pad, right       | XUSB_GAMEPAD_START
     const auto b = [&state](int bit) -> bool {
         return (state.buttons & (1u << bit)) != 0;
     };
 
     if (b(0))
-        report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
+        report.wButtons |= XUSB_GAMEPAD_Y;
     if (b(1))
-        report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
+        report.wButtons |= XUSB_GAMEPAD_X;
     if (b(2))
         report.wButtons |= XUSB_GAMEPAD_A;
     if (b(3))
         report.wButtons |= XUSB_GAMEPAD_B;
     if (b(4))
-        report.wButtons |= XUSB_GAMEPAD_X;
+        report.wButtons |= XUSB_GAMEPAD_RIGHT_SHOULDER;
     if (b(5))
-        report.wButtons |= XUSB_GAMEPAD_Y;
+        report.wButtons |= XUSB_GAMEPAD_LEFT_SHOULDER;
     if (b(6))
         report.wButtons |= XUSB_GAMEPAD_BACK;
     if (b(7))

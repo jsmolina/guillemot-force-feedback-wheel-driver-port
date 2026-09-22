@@ -190,13 +190,16 @@ int main() {
             continue; // not an input packet, ignore
         }
 
-        if (new_state.buttons != state.buttons) {
-            log("buttons: 0x%02X  bits=%d%d%d%d%d%d%d%d (bit7..bit0)",
+        if (new_state.buttons != state.buttons
+            || new_state.hat0 != state.hat0
+            || new_state.hat1 != state.hat1) {
+            log("buttons: 0x%02X  bits=%d%d%d%d%d%d%d%d (bit7..bit0)  hat0=0x%X hat1=0x%X",
                 new_state.buttons,
                 (new_state.buttons >> 7) & 1, (new_state.buttons >> 6) & 1,
                 (new_state.buttons >> 5) & 1, (new_state.buttons >> 4) & 1,
                 (new_state.buttons >> 3) & 1, (new_state.buttons >> 2) & 1,
-                (new_state.buttons >> 1) & 1, (new_state.buttons >> 0) & 1);
+                (new_state.buttons >> 1) & 1, (new_state.buttons >> 0) & 1,
+                new_state.hat0, new_state.hat1);
         }
 
         // Re-connection / target-loss detection: ViGEmClient returns an
