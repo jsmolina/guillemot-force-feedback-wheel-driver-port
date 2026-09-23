@@ -1,6 +1,6 @@
 # iforce-feedback-wheel-driver-port
 
-User-mode port to modern Windows of the Linux `iforce` input path for the Guillemot/Thrustmaster Force
+User-mode port to modern Windows 10 (probably Windows 11) of the Linux `iforce` input path for the Guillemot/Thrustmaster Force
 Feedback Racing Wheel (`VID 0x06f8`, `PID 0x0004`). The current port exposes
 the wheel as a virtual Xbox 360 controller through ViGEm and implements a
 conservative I-Force force-feedback output path that keeps the wheel
@@ -123,21 +123,7 @@ put their default shift bindings; the paddles land on X/Y instead. The left
 hat (hat 0) drives the D-pad as described above. Unsupported packet types and
 truncated packets are ignored.
 
-## What changed from the earlier implementation
-
-The earlier version was closer to a generic approximation than a real I-Force
-upload path. It had three concrete problems:
-
-1. The centering command used a raw 0..100-style value instead of the Linux
-   I-Force payload encoding, so the spring strength was effectively wrong and
-   the wheel stopped self-centering.
-2. The rumble magnitude was halved (`motor >> 1`), which made the output too
-   weak to be noticeable in browser-based Xbox 360 vibration tests.
-3. The periodic effects relied on the protocol's `0xFFFF` "no second modifier"
-   sentinel instead of a real envelope block, which is known to be unreliable on
-   older I-Force firmware revisions.
-
-The current implementation fixes those issues by:
+## What does current implementation
 
 - keeping autocentering enabled at startup with the Linux-compatible payload
   `{ 0x03, strength }` followed by `{ 0x04, 0x01 }`;
@@ -149,7 +135,7 @@ The current implementation fixes those issues by:
 
 ## Force Feedback Behaviour
 
-The port now installs a small, Linux-compatible I-Force effect set for the
+The port now installs a small, Linux-driver-like I-Force effect set for the
 Guillemot wheel. The startup flow is intentionally conservative and mirrors the
 Linux driver semantics:
 
@@ -213,9 +199,7 @@ cmake --build build --config Release
 ```
 
 Start a game that produces controller rumble and verify the wheel response at
-low speed first. The current macOS development environment cannot perform
-this runtime test because the ViGEmClient headers and library are Windows
-dependencies, and physical wheel hardware is required for force feedback.
+low speed first. 
 
 ## Reference
 
